@@ -45,7 +45,6 @@ def load_config(source: str) -> GISCredentials:
         return {"url": url, "username": user, "password": password}
         
     except Exception as e:
-        # Avoid double-logging if it's our own ValueError
         if not isinstance(e, ValueError):
             log.exception("Issue loading config configuration structure.")
         raise
