@@ -1,0 +1,70 @@
+from datetime import date
+import logging
+from dataclasses import dataclass
+from arcgis.gis import GIS, User
+
+from auth import gis_conn, load_config
+from utils import esri_timestamp_to_str
+from users import find_user
+
+log = logging.getLogger(__name__)
+logging.getLogger("arcgis").setLevel(logging.ERROR)
+
+
+def user_sharing_audit(gis: GIS, username: str) -> dict[str, int] | None:
+    try:
+        username = username.strip().lower()
+        user = find_user(gis=gis, username=username)
+
+        if not user:
+            log.warning("User not found: %s", username)
+            return None
+
+        user_items = gis.content.search(query=f"owner:{username}", max_items=-1)
+
+        if not user_items:
+            log.warning("%s does not own any items", username)
+            return None
+
+        audit_summary = {
+            "username": username,
+            "total_items": len(user_items),
+            "public_count": 0,
+            "org_count": 0,
+            "private_count": 0,
+        }
+
+        for item in user_items:
+            if item.access == "public":
+                audit_summary["public_count"] += 1
+            elif item.access == "org":
+                audit_summary["org_count"] += 1
+            else:
+                audit_summary["private_count"] += 1
+
+        return audit_summary
+    except Exception:
+        log.exception("Issue with fetching content")
+        return None
+
+
+"""
+# ==== Functions to create ====
+# User/Access Audits
+- admin_count_audit
+- stale_users
+- users_sharing_audit
+- user_sharing_audit: IP
+
+# Content Exposure
+- public_item_audit
+- broken_links_audit
+
+# Group Audits
+- group_security_audit
+- empty_groups_audit
+
+# Limit Auditing
+- license_threshold_audit
+- role_threshold_audit
+"""
