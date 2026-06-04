@@ -1,6 +1,6 @@
 # ArcGIS Management Toolkit (esri-cli)
 
-This is a work-in-progress Python CLI tool designed to centralize ArcGIS administration tasks (Content, Groups, and User management) into a single, efficient CLI.
+This is a work-in-progress Python tool designed to centralize ArcGIS administration tasks (Content, Groups, User management, and auditing) into a single, efficient CLI.
 
 ## Current Status
 
@@ -8,10 +8,11 @@ This is a work-in-progress Python CLI tool designed to centralize ArcGIS adminis
 
 ## Planned Features
 
-* **Centralized Authentication:** One-time login to manage GIS resources.
-* **Content Management:** Find, summarize, and audit items.
-* **Group Administration:** Manage memberships and security audits.
-* **User Management:** Handle user accounts, identify stale users, and audit sharing permissions.
+* [**Centralized Authentication:**](src/auth.py) One-time login to manage GIS resources.
+* [**Content Management:**](src/content.py) Find, summarize, and audit items.
+* [**Group Administration:**](src/groups.py) Manage memberships and security audits.
+* [**User Management:**](src/users.py) Handle user accounts, identify stale users, and audit sharing permissions.
+* [**Platform Auditing:**](src/audit.py) Analyze groups, content, user activity, sharing permissions, and stale/inactive accounts.
 
 ## Setup
 
@@ -27,4 +28,4 @@ Since this is in early stages, please feel free to poke around the `src/` folder
 
 ---
 
-*Note: This project is meant to eventually deprecate/run alongside (haven't decided which) the `Geo-DB-Toolkit/ArcGISManagement` PowerShell module.*
+*Note: This project is meant to eventually deprecate the `geo-db-toolkit/ArcGISManagement` PowerShell module.*
