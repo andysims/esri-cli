@@ -1,14 +1,40 @@
-from datetime import date
+import datetime as dt
 import logging
 from dataclasses import dataclass
 from arcgis.gis import GIS, User
+from collections import Counter  # probably throw this into reporting
 
 from auth import gis_conn, load_config
 from utils import esri_timestamp_to_str
-from users import find_user
+from users import find_user, get_user
+from models import ArcGISUser
 
 log = logging.getLogger(__name__)
 logging.getLogger("arcgis").setLevel(logging.ERROR)
+
+
+# ==== User/Access Audits ====
+def total_users(gis) -> int:
+    user_counts = gis.users.counts("user_type", as_df=False)
+    total_users: int = sum(item["count"] for item in user_counts)
+    log.info("There are %d total users.", total_users)
+
+    return total_users
+
+
+def inactive_users(gis: GIS, days: int = 90) -> list[ArcGISUser]:
+    """Return users who have never logged in or haven't logged in within N days."""
+    cutoff_date = dt.datetime.now() - dt.timedelta(days=days)
+    cutoff_timestamp_ms = int(cutoff_date.timestamp() * 1000)
+
+    max_users = total_users(gis)
+    all_users = gis.users.search(max_users=max_users)
+
+    return [
+        ArcGISUser.from_arcgis(u)
+        for u in all_users
+        if u.get("lastLogin", -1) == -1 or u.get("lastLogin", 0) < cutoff_timestamp_ms
+    ]
 
 
 def user_sharing_audit(gis: GIS, username: str) -> dict[str, int] | None:
@@ -52,7 +78,7 @@ def user_sharing_audit(gis: GIS, username: str) -> dict[str, int] | None:
 # ==== Functions to create ====
 # User/Access Audits
 - admin_count_audit
-- stale_users
+- inactive_users
 - users_sharing_audit
 - user_sharing_audit: IP
 
