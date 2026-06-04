@@ -6,7 +6,7 @@ from arcgis.gis import GIS, User
 from utils import esri_timestamp_to_str
 
 log = logging.getLogger(__name__)
-logging.getLogger("arcgis").setLevel(logging.ERROR)  # will move this into main.py
+logging.getLogger("arcgis").setLevel(logging.ERROR)  # will move into main.py
 
 
 @dataclass
@@ -47,8 +47,8 @@ class ArcGISUser:
             groups=len(user_obj.groups),
         )
 
-
-class FolderInfo(NamedTuple):
+@dataclass
+class FolderInfo:
     id: str
     name: str
     created: str | None
@@ -57,15 +57,19 @@ class FolderInfo(NamedTuple):
 # ======== SEARCH ========
 def get_user(gis: GIS, username: str) -> User:
     user = gis.users.get(username)
-
-    if user:
-        log.info("Username found: %s", username)
-        return user
-    else:
+    if not user:
         log.warning("Username not found: %s", username)
         raise ValueError(f"Username was not found for {username}")
+    log.info("Username found: %s", username)
+    return user
 
 
+def get_user_details(gis: GIS, username: str) -> ArcGISUser:
+    raw_user = get_user(gis, username)
+    return ArcGISUser.from_arcgis(raw_user)
+
+
+# move this to CLI; has interactivity
 def select_user(user_list: list[User]) -> User:
     print("Multiple users found:")
     for i, user in enumerate(user_list, start=1):
@@ -88,44 +92,38 @@ def find_user(
     username: str | None = None,
     email: str | None = None,
     lastname: str | None = None,
-) -> ArcGISUser | None:
-    query = []
+) -> list[ArcGISUser]:
+    query_parts = []
     if username:
-        query.append(f"username:{username}")
+        query_parts.append(f"username:{username}")
     if email:
-        query.append(f"email:{email}")
+        query_parts.append(f"email:{email}")
     if lastname:
-        query.append(f"lastname:{lastname}")
+        query_parts.append(f"lastname:{lastname}")
 
-    if not query:
-        log.warning("Sufficient info not provided for user search")
-        return None
+    if not query_parts:
+        log.warning("No search criteria provided for find_user")
+        return []
 
-    query_string = " AND ".join(query)
-    users = gis.users.search(query=query_string)
+    query_string = " AND ".join(query_parts)
 
-    if not users:
-        log.warning("Query returned no results: %s", query_string)
-        return None
+    try:
+        raw_users: list[User] = gis.users.search(query=query_string)
 
-    if len(users) == 1:
-        user = users[0]
-    else:
-        user = select_user(users)
+        users: list[ArcGISUser] = [
+            ArcGISUser.from_arcgis(u) for u in raw_users
+        ]
 
-    return ArcGISUser.from_arcgis(user)
+        if not users:
+            log.warning("Query returned no results: %s", query_string)
+        else:
+            log.info("Found %d user(s) for query: %s", len(users), query_string)
 
+        return users
 
-def get_user_details(gis: GIS, username: str) -> ArcGISUser:
-    user = gis.users.get(username)
-    # print(vars(user).keys())
-
-    if user:
-        log.info("Username found: %s", username)
-        return ArcGISUser.from_arcgis(user)
-    else:
-        log.warning("Username not found: %s", username)
-        raise ValueError(f"Username was not found for {username}")
+    except Exception:
+        log.exception("Error during user search with query: %s", query_string)
+        raise
 
 
 def get_user_folders(gis: GIS, username: str) -> list[FolderInfo]:
@@ -140,84 +138,56 @@ def get_user_folders(gis: GIS, username: str) -> list[FolderInfo]:
         folders: list[FolderInfo] = [
             FolderInfo(
                 id=f._fid,
-                name=f._name or f._properties["name"],
-                created=esri_timestamp_to_str(f._properties["created"]),
+                name=f._name or f._properties.get("name"),
+                created=esri_timestamp_to_str(f._properties.get("created")),
             )
             for f in user.folders
             if f._fid != "Root Folder"
         ]
-    except Exception:
+
+        if not folders:
+            log.warning("No folders found for %s (outside root)", username)
+        else:
+            log.info("Returning %d folders for %s", len(folders), username)
+
+        return folders
+
+    except Exception as e:   # 
         log.exception("Error fetching folders for %s", username)
-        return []
-
-    if not folders:
-        log.warning("No folders found for %s (outside root)", username)
-        return []
-
-    log.info("Returning %d folders for %s", len(folders), username)
-    return folders
+        raise
 
 
 # ======== Access/Security ========
-def disable_user(gis: GIS, username: str) -> bool:
+def set_user_disabled(gis: GIS, username: str, disable: bool) -> bool:
     try:
-        search_results: list[User] = gis.users.search(query=f"username:{username}")
-
-        if not search_results:
-            log.warning("Failed to disable user: User %s was not found", username)
+        user = gis.users.get(username)   
+        if not user:
+            log.warning("User %s was not found", username)
             return False
 
-        user: User = search_results[0]
+        current_state = user.disabled   # or user.get("disabled", False)
 
-        is_disabled: bool = user.get("disabled", False)
-
-        if is_disabled:
-            log.info("User %s is already disabled", username)
+        if current_state == disable:
+            action = "disabled" if disable else "enabled"
+            log.info("User %s is already %s", username, action)
             return False
 
-        success: bool = user.disable()
+        if disable:
+            success = user.disable()
+        else:
+            success = user.enable()
+
         if success:
-            log.info("Successfully disabled user: %s", username)
+            action = "disabled" if disable else "enabled"
+            log.info("Successfully %s user: %s", action, username)
             return True
         else:
-            log.error("Failed to disable user")
+            log.error("Failed to %s user", "disable" if disable else "enable")
             return False
 
     except Exception:
-        log.exception(
-            "Unexpected error occurred while attempting to disable %s", username
-        )
-        return False
-
-
-def enable_user(gis: GIS, username: str) -> bool:
-    try:
-        search_results: list[User] = gis.users.search(query=f"username:{username}")
-
-        if not search_results:
-            log.warning("Failed to enable user: User %s was not found", username)
-            return False
-
-        user: User = search_results[0]
-
-        is_disabled: bool = user.get("disabled", False)
-
-        if not is_disabled:
-            log.info("User %s is already enabled", username)
-            return False
-
-        success: bool = user.enable()
-        if success:
-            log.info("Successfully enabled user: %s", username)
-            return True
-        else:
-            log.error("Failed to enable user")
-            return False
-
-    except Exception:
-        log.exception(
-            "Unexpected error occurred while attempting to enable %s", username
-        )
+        action = "disable" if disable else "enable"
+        log.exception("Unexpected error while attempting to %s %s", action, username)
         return False
 
 
