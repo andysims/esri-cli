@@ -67,4 +67,24 @@ def user_sharing_audit(gis: GIS, username: str) -> dict[str, int] | None:
 # Limit Auditing
 - license_threshold_audit
 - role_threshold_audit
+
+
+
+==================
+# Activity
+- get_user_activity (last login, creation date, login frequency)
+- get_inactive_users (no login within N days)
+- get_login_report
+
+# Inventory
+- get_org_user_summary (counts by role, type, provider)
+- get_unowned_content (items whose owner no longer exists)
+- get_shared_publicly (all publicly shared items)
+- get_items_not_accessed (stale content by modified/viewed date)
+
+# Security
+- get_users_without_mfa
+- get_enterprise_vs_local_breakdown
+- get_disabled_users
+- get_users_by_role
 """
