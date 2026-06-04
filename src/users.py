@@ -1,59 +1,12 @@
 import logging
-from dataclasses import dataclass
-from typing import NamedTuple
 from arcgis.gis import GIS, User
 
 from utils import esri_timestamp_to_str
 from groups import transfer_user_groups
+from models import ArcGISUser, FolderInfo
 
 log = logging.getLogger(__name__)
 logging.getLogger("arcgis").setLevel(logging.ERROR)  # will move into main.py
-
-
-@dataclass
-class ArcGISUser:
-    firstName: str
-    lastName: str
-    fullName: str
-    username: str
-    email: str
-    idpUsername: str
-    created: str | None
-    lastLogin: str | None
-    role: str
-    userLicenseType: str
-    mfaEnabled: str
-    access: str
-    provider: str
-    disabled: bool
-    groups: int
-
-    @classmethod
-    def from_arcgis(cls, user_obj):
-        return cls(
-            firstName=user_obj.firstName,
-            lastName=user_obj.lastName,
-            fullName=user_obj.fullName,
-            username=user_obj.username,
-            email=user_obj.email,
-            idpUsername=user_obj.idpUsername,
-            created=esri_timestamp_to_str(user_obj.created),
-            lastLogin=esri_timestamp_to_str(user_obj.lastLogin),
-            role=user_obj.role,
-            userLicenseType=user_obj.userLicenseTypeId,
-            mfaEnabled=user_obj.mfaEnabled,
-            access=user_obj.access,
-            provider=user_obj.provider,
-            disabled=user_obj.disabled,
-            groups=len(user_obj.groups),
-        )
-
-
-@dataclass
-class FolderInfo:
-    id: str
-    name: str
-    created: str | None
 
 
 # ======== SEARCH ========
