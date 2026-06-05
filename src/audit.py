@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from arcgis.gis import GIS, User
 from collections import Counter  # probably throw this into reporting
 
-from auth import gis_conn, load_config
-from utils import esri_timestamp_to_str
-from users import find_user, get_user
-from models import ArcGISUser
+from .auth import gis_conn, load_config
+from .utils import esri_timestamp_to_str
+from .users import find_user, get_user
+from .models import ArcGISUser
 
 log = logging.getLogger(__name__)
 logging.getLogger("arcgis").setLevel(logging.ERROR)
@@ -37,30 +37,39 @@ def inactive_users(gis: GIS, days: int = 90) -> list[ArcGISUser]:
     ]
 
 
-def user_sharing_audit(gis: GIS, username: str) -> dict[str, int] | None:
+def sharing_audit(gis: GIS, username: str | None = "") -> dict[str, int] | None:
     try:
-        username = username.strip().lower()
-        user = find_user(gis=gis, username=username)
+        # 1. Standardize the input
+        username = (username or "").strip().lower()
 
-        if not user:
-            log.warning("User not found: %s", username)
+        # 2. Determine search query and log context
+        if username:
+            user = find_user(gis=gis, username=username)
+            if not user:
+                log.warning("User not found: %s", username)
+                return None
+            search_query = f"owner:{username}"
+            context_name = username
+        else:
+            search_query = "*"  # Searches all items in the org
+            context_name = "Entire Org"
+
+        # 3. Fetch items
+        items = gis.content.search(query=search_query, max_items=-1)
+        if not items:
+            log.warning("%s does not own any items or org is empty", context_name)
             return None
 
-        user_items = gis.content.search(query=f"owner:{username}", max_items=-1)
-
-        if not user_items:
-            log.warning("%s does not own any items", username)
-            return None
-
+        # 4. Compile audit
         audit_summary = {
-            "username": username,
-            "total_items": len(user_items),
+            "scope": context_name,
+            "total_items": len(items),
             "public_count": 0,
             "org_count": 0,
             "private_count": 0,
         }
 
-        for item in user_items:
+        for item in items:
             if item.access == "public":
                 audit_summary["public_count"] += 1
             elif item.access == "org":
@@ -69,6 +78,7 @@ def user_sharing_audit(gis: GIS, username: str) -> dict[str, int] | None:
                 audit_summary["private_count"] += 1
 
         return audit_summary
+
     except Exception:
         log.exception("Issue with fetching content")
         return None
@@ -78,8 +88,8 @@ def user_sharing_audit(gis: GIS, username: str) -> dict[str, int] | None:
 # ==== Functions to create ====
 # User/Access Audits
 - admin_count_audit
-- inactive_users
-- users_sharing_audit
+- inactive_users: DONE
+- sharing_audit: DONE
 - user_sharing_audit: IP
 
 # Content Exposure
