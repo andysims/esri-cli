@@ -1,9 +1,9 @@
 import logging
 from arcgis.gis import GIS, User
 
-from utils import esri_timestamp_to_str
-from groups import transfer_user_groups
-from models import ArcGISUser, FolderInfo
+from .utils import esri_timestamp_to_str
+from .groups import transfer_user_groups
+from .models import ArcGISUser, FolderInfo
 
 log = logging.getLogger(__name__)
 logging.getLogger("arcgis").setLevel(logging.ERROR)  # will move into main.py
@@ -20,7 +20,7 @@ def get_user(gis: GIS, username: str) -> User:
     return user
 
 
-def get_user_details(gis: GIS, user: str | User) -> ArcGISUser:
+def user_details(gis: GIS, user: str | User) -> ArcGISUser:
     """Return an ArcGISUser dataclass for the given username or User object."""
     if isinstance(user, str):
         raw_user = gis.users.get(user)
@@ -90,7 +90,7 @@ def find_user(
         raise
 
 
-def get_user_folders(gis: GIS, username: str) -> list[FolderInfo]:
+def user_folders(gis: GIS, username: str) -> list[FolderInfo]:
     """Return all non-root folders owned by the user.
 
     Returns an empty list if the user does not exist or has no folders.
@@ -548,11 +548,11 @@ def transfer_user_content(
 
 
 """
-# ==== Functions to create ====
+# ==== Functions created ====
 # Search
 - find_user: DONE
-- get_user_details: DONE
-- get_user_folders: DONE
+- user_details: DONE
+- user_folders: DONE
 
 # Lifecycle)
 - create_user: DONE

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from utils import esri_timestamp_to_str
+from .utils import esri_timestamp_to_str
 import datetime as dt
 
 
