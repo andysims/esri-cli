@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arcgis-management"
+version = "0.1.0"
+description = "ArcGIS Enterprise and Online Management Toolkit"
+authors = [{name = "Andy", email = "geogeek93@gmail.com"}]
+dependencies = [
+    "typer[all]",
+    "arcgis",
+    "python-dotenv",
+    "rich",
+    "pandas"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[project.scripts]
+esri-cli = "src.main:app"
