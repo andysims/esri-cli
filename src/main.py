@@ -184,14 +184,17 @@ def cmd_user_details(
 
     # Panel gives us a nice box with a title — good for single-record views.
     detail_lines = [
-        f"[bold]Username:[/bold]  {u.username}",
-        f"[bold]Full Name:[/bold] {u.fullName}",
-        f"[bold]Email:[/bold]     {u.email}",
-        f"[bold]Role:[/bold]      {u.role}",
-        f"[bold]User Type:[/bold] {u.userLicenseType}",
-        f"[bold]Created:[/bold]   {u.created or '—'}",
-        f"[bold]Disabled:[/bold]  {'Yes' if u.disabled else 'No'}",
-        f"[bold]Provider:[/bold]  {u.provider}",
+        f"[bold]Username:[/bold]     {u.username}",
+        f"[bold]Full Name:[/bold]    {u.fullName}",
+        f"[bold]Email:[/bold]        {u.email}",
+        f"[bold]idpUsername:[/bold]  {u.idpUsername or ""}",
+        f"[bold]Role:[/bold]         {u.role}",
+        f"[bold]User Type:[/bold]    {u.userLicenseType}",
+        f"[bold]Created:[/bold]      {u.created or '—'}",
+        f"[bold]Last Login:[/bold]   {u.lastLogin or '—'}",
+        f"[bold]Disabled:[/bold]     {'Yes' if u.disabled else 'No'}",
+        f"[bold]Provider:[/bold]     {u.provider}",
+        f"[bold]Groups:[/bold]       {u.groups or ""}",
     ]
     console.print(
         Panel("\n".join(detail_lines), title=f"[cyan]{username}[/cyan]", expand=False)
