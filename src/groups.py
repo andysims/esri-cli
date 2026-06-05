@@ -4,6 +4,12 @@ import logging
 log = logging.getLogger(__name__)
 
 
+# ======== Search ========
+# find_group (by name, owner, tag)
+# group_details
+# group_members
+
+# ======== Membership ========
 def transfer_group_ownership(
     gis: GIS,
     group_id: str,
@@ -46,3 +52,28 @@ def transfer_user_groups(
             # Member only → remove old, add new
             group.remove_users(from_user.username)
             group.add_users(to_user.username)
+
+
+"""
+# Search
+- find_group (by name, owner, tag)
+- group_details
+- group_members
+
+# Lifecycle
+- create_group
+- delete_group
+- update_group (title, description, access)
+
+# Membership
+- add_group_member
+- remove_group_member
+- update_member_role (owner, admin, member)
+- transfer_group_ownership: DONE > this changes ownership of user's groups
+- transfer_user_groups: DONE > this transfers groups from one user to another
+
+# Content
+- group_content
+- add_item_to_group
+- remove_item_from_group
+"""
