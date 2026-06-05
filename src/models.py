@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from .utils import esri_timestamp_to_str
 import datetime as dt
+from typing import Dict, Any
 
 
 @dataclass
@@ -58,3 +59,50 @@ class FolderInfo:
     id: str
     name: str
     created: str | None
+
+
+@dataclass
+class ArcGISGroup:
+    id: str
+    title: str
+    owner: str
+    description: str
+    created: str | None
+    modified: str | None
+    access: str
+    isInvitationOnly: bool
+    isReadOnly: bool
+    isViewOnly: bool
+    protected: bool
+    item_count: int
+
+    @classmethod
+    def from_arcgis(cls, group_obj) -> "ArcGISGroup":
+        data: Dict[str, Any] = (
+            dict(group_obj) if hasattr(group_obj, "keys") else group_obj
+        )
+
+        group_id = data.get("id", "")
+        item_count = 0
+
+        if group_id and hasattr(group_obj, "content"):
+            try:
+                # Calls the native .content() array from the object
+                item_count = len(group_obj.content())
+            except Exception:
+                item_count = 0
+
+        return cls(
+            id=group_obj.get("id", ""),
+            title=group_obj.get("title", ""),
+            owner=group_obj.get("owner", ""),
+            description=group_obj.get("description", ""),
+            created=esri_timestamp_to_str(group_obj.get("created")),
+            modified=esri_timestamp_to_str(group_obj.get("modified")),
+            access=group_obj.get("access", "private"),
+            isInvitationOnly=group_obj.get("isInvitationOnly", False),
+            isReadOnly=group_obj.get("isReadOnly", False),
+            isViewOnly=group_obj.get("isViewOnly", False),
+            protected=group_obj.get("protected", False),
+            item_count=item_count,
+        )
