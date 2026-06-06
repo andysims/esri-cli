@@ -75,10 +75,19 @@ class ArcGISGroup:
     isViewOnly: bool
     protected: bool
     item_count: int
+    members: Dict[str, List[str]] = field(default_factory=dict)
+    member_count: int = 0
 
     @classmethod
     def from_arcgis(cls, group_obj) -> "ArcGISGroup":
         """Create ArcGISGroup from arcgis.gis.Group object."""
+        # getting members
+        raw_members = group_obj.get_members()
+        all_users = (
+            [raw_members.get("owner")] if raw_members.get("owner") else []
+        ) + raw_members.get("admins", []) + raw_members.get("members", [])
+        member_count = len(set(all_users))
+        
         # Safely get item_count
         try:
             item_count = len(group_obj.content()) if hasattr(group_obj, "content") else 0
@@ -98,4 +107,6 @@ class ArcGISGroup:
             isViewOnly=getattr(group_obj, "isViewOnly", False),
             protected=getattr(group_obj, "protected", False),
             item_count=item_count,
+            members=raw_members,
+            member_count=member_count
         )
