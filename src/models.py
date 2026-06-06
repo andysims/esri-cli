@@ -66,7 +66,7 @@ class ArcGISGroup:
     id: str
     title: str
     owner: str
-    description: str
+    description: str | None
     created: str | None
     modified: str | None
     access: str
@@ -78,31 +78,24 @@ class ArcGISGroup:
 
     @classmethod
     def from_arcgis(cls, group_obj) -> "ArcGISGroup":
-        data: Dict[str, Any] = (
-            dict(group_obj) if hasattr(group_obj, "keys") else group_obj
-        )
-
-        group_id = data.get("id", "")
-        item_count = 0
-
-        if group_id and hasattr(group_obj, "content"):
-            try:
-                # Calls the native .content() array from the object
-                item_count = len(group_obj.content())
-            except Exception:
-                item_count = 0
+        """Create ArcGISGroup from arcgis.gis.Group object."""
+        # Safely get item_count
+        try:
+            item_count = len(group_obj.content()) if hasattr(group_obj, "content") else 0
+        except Exception:
+            item_count = 0
 
         return cls(
-            id=group_obj.get("id", ""),
-            title=group_obj.get("title", ""),
-            owner=group_obj.get("owner", ""),
-            description=group_obj.get("description", ""),
-            created=esri_timestamp_to_str(group_obj.get("created")),
-            modified=esri_timestamp_to_str(group_obj.get("modified")),
-            access=group_obj.get("access", "private"),
-            isInvitationOnly=group_obj.get("isInvitationOnly", False),
-            isReadOnly=group_obj.get("isReadOnly", False),
-            isViewOnly=group_obj.get("isViewOnly", False),
-            protected=group_obj.get("protected", False),
+            id=getattr(group_obj, "id", ""),
+            title=getattr(group_obj, "title", ""),
+            owner=getattr(group_obj, "owner", ""),
+            description=getattr(group_obj, "description", None),
+            created=esri_timestamp_to_str(getattr(group_obj, "created", None)),
+            modified=esri_timestamp_to_str(getattr(group_obj, "modified", None)),
+            access=getattr(group_obj, "access", "private"),
+            isInvitationOnly=getattr(group_obj, "isInvitationOnly", False),
+            isReadOnly=getattr(group_obj, "isReadOnly", False),
+            isViewOnly=getattr(group_obj, "isViewOnly", False),
+            protected=getattr(group_obj, "protected", False),
             item_count=item_count,
         )
