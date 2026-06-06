@@ -238,11 +238,16 @@ def transfer_user_groups(
             group.add_users(to_user.username)
 
 
+# ==== Lifecycle ========
+# create group
+# add item to group
+# remove item from group
+
+
 """
 # Search
-- find_group (by name, owner, tag)
-- group_details
-- group_members
+- find_group (by name, owner, id): DONE
+- group_details: DONE
 
 # Lifecycle
 - create_group
@@ -250,11 +255,11 @@ def transfer_user_groups(
 - update_group (title, description, access)
 
 # Membership
-- add_group_member
-- remove_group_member
-- update_member_role (owner, admin, member)
-- transfer_group_ownership: DONE > this changes ownership of user's groups
-- transfer_user_groups: DONE > this transfers groups from one user to another
+- add_group_member: DONE
+- remove_group_member: DONE
+- update_member_role (owner, admin, member): DONE
+- transfer_group_ownership: DONE (changes ownership of user's groups)
+- transfer_user_groups: DONE (transfers groups from one user to another)
 
 # Content
 - group_content
