@@ -105,7 +105,6 @@ def group_details(
 
     return ArcGISGroup.from_arcgis(raw_group)
 
-# group_members
 
 # ======== Membership ========
 def add_group_member(
@@ -240,8 +239,52 @@ def transfer_user_groups(
 
 # ==== Lifecycle ========
 # create group
-# add item to group
-# remove item from group
+# delete group
+
+def update_group(
+    gis: GIS,
+    group: str,
+    title: str | None = None,
+    description: str | None = None,
+    access: str | None = None,
+) -> None:
+    """Update properties of a group (title, description, and/or access).
+    
+    group: Group ID or title (resolved via _resolve_group)
+    At least one of title, description, or access must be provided.
+    """
+    if not any([title, description, access]):
+        raise ValueError("At least one of title, description, or access must be provided")
+
+    raw_group = _resolve_group(gis, group)
+
+    log.info(
+        "Updating group '%s' (ID: %s) — title=%s, access=%s",
+        raw_group.title, raw_group.id, title, access
+    )
+
+    try:
+        # Build update payload
+        update_data = {}
+        if title is not None:
+            update_data["title"] = title
+        if description is not None:
+            update_data["description"] = description
+        if access is not None:
+            if access not in ("private", "org", "public"):
+                raise ValueError("access must be one of: 'private', 'org', 'public'")
+            update_data["access"] = access
+
+        success = raw_group.update(**update_data)
+
+        if success:
+            log.info("Successfully updated group '%s'", raw_group.title)
+        else:
+            raise RuntimeError(f"Group update returned False for group {raw_group.id}")
+
+    except Exception:
+        log.exception("Failed to update group '%s' (ID: %s)", raw_group.title, raw_group.id)
+        raise
 
 # ======== Content ========
 def group_content(
@@ -356,7 +399,7 @@ def remove_item(
 # Lifecycle
 - create_group
 - delete_group
-- update_group (title, description, access)
+- update_group: DONE
 
 # Membership
 - add_group_member: DONE
