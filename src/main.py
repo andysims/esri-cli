@@ -6,9 +6,10 @@ into sub-apps per domain (users, groups, content, etc.). Rich handles all
 terminal output so we get tables, colors, and panels instead of raw print().
 
 Run with:
-    python main.py --help
-    python main.py user find --email jdoe@example.com
-    python main.py user create --username jdoe ...
+    esri-cli --help
+    esri-cli user find --email jdoe@example.com
+    esri-cli group find --title "My Team"
+    esri-cli group add-member <group_id> <username>
 
 Auth note: every command takes --env (e.g. "agol" or "portal") to pick which
 set of credentials to load from .env. Defaults to "agol". This hits
@@ -24,36 +25,33 @@ from arcgis.gis import GIS
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import print as rprint
 
 from .auth import load_config, gis_conn
 from . import users as user_ops
+from . import groups as group_ops
 
 # ---------------------------------------------------------------------------
-# Logging setup — INFO to file, WARNING+ to stderr so it doesn't pollute
-# Rich's output. Adjust level here rather than scattered across modules.
+# Logging — INFO goes to file, WARNING+ to stderr so Rich owns stdout cleanly.
 # ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     handlers=[
         logging.FileHandler("arcgis_cli.log"),
-        # Keep the console handler at WARNING so Rich owns the terminal.
         logging.StreamHandler(sys.stderr),
     ],
 )
 logging.getLogger("arcgis").setLevel(logging.ERROR)
 log = logging.getLogger(__name__)
 
-# Rich console — used everywhere for pretty output.
 console = Console()
 
 # ---------------------------------------------------------------------------
-# Root app + sub-apps
-# Each domain gets its own app so commands stay organized:
-#   python main.py user ...
-#   python main.py group ...   (future)
-#   python main.py content ... (future)
+# Root app — one sub-app per domain, mounted by name.
+# Adding a new domain (content, audit, etc.) is just:
+#   1. Create foo_app = typer.Typer(...)
+#   2. Add commands to it with @foo_app.command(...)
+#   3. app.add_typer(foo_app, name="foo")
 # ---------------------------------------------------------------------------
 app = typer.Typer(
     name="arcgis-admin",
@@ -62,24 +60,20 @@ app = typer.Typer(
 )
 
 user_app = typer.Typer(help="User management commands.", no_args_is_help=True)
-app.add_typer(user_app, name="user")
+group_app = typer.Typer(help="Group management commands.", no_args_is_help=True)
 
-# Placeholders — wire these up when you add the modules.
-# group_app = typer.Typer(help="Group management commands.")
-# app.add_typer(group_app, name="group")
+app.add_typer(user_app, name="user")
+app.add_typer(group_app, name="group")
+
+# content_app = typer.Typer(help="Content management commands.")
+# app.add_typer(content_app, name="content")
 
 
 # ---------------------------------------------------------------------------
-# Shared auth helper
-# Every command calls this once. Keeps the "get a GIS object" boilerplate
-# out of each individual command function.
+# Shared auth helper — called once at the top of every command.
 # ---------------------------------------------------------------------------
 def _connect(env: str) -> GIS:
-    """Load credentials for `env` and return an authenticated GIS object.
-
-    Exits with a clean error message if credentials are missing or the
-    connection fails — no raw tracebacks in the user's terminal.
-    """
+    """Resolve credentials for `env` and return an authenticated GIS object."""
     try:
         creds = load_config(env)
         gis = gis_conn(creds)
@@ -105,7 +99,7 @@ def _connect(env: str) -> GIS:
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# SEARCH commands
+# Search
 # ---------------------------------------------------------------------------
 
 
@@ -122,12 +116,11 @@ def cmd_find_user(
 ):
     """Search for users by username, email, and/or last name.
 
-    All provided filters are AND-ed together, so narrowing them down gives
-    fewer results. At least one filter is required.
+    All provided filters are AND-ed together. At least one is required.
 
-    Example:
-        python main.py user find --email jdoe@example.com
-        python main.py user find --lastname Smith --env portal
+    Examples:
+        esri-cli user find --email jdoe@example.com
+        esri-cli user find --lastname Smith --env portal
     """
     if not any([username, email, lastname]):
         console.print(
@@ -142,7 +135,6 @@ def cmd_find_user(
         console.print("[yellow]No users found matching those criteria.[/yellow]")
         return
 
-    # Build a Rich table — much easier to scan than a wall of text.
     table = Table(title=f"Users ({len(results)} found)", show_lines=True)
     table.add_column("Username", style="cyan", no_wrap=True)
     table.add_column("Full Name")
@@ -153,12 +145,7 @@ def cmd_find_user(
 
     for u in results:
         table.add_row(
-            u.username,
-            u.fullName,
-            u.email,
-            u.role,
-            u.userLicenseType,
-            u.created or "—",
+            u.username, u.fullName, u.email, u.role, u.userLicenseType, u.created or "—"
         )
 
     console.print(table)
@@ -169,10 +156,10 @@ def cmd_user_details(
     username: str = typer.Argument(..., help="Username to look up."),
     env: str = typer.Option("agol", "--env", help="Environment key in .env."),
 ):
-    """Show full details for a single user in a formatted panel.
+    """Show full profile details for a single user.
 
     Example:
-        python main.py user details jdoe
+        esri-cli user details jdoe
     """
     gis = _connect(env)
 
@@ -182,19 +169,18 @@ def cmd_user_details(
         console.print(f"[red]Not found:[/red] {e}")
         raise typer.Exit(1)
 
-    # Panel gives us a nice box with a title — good for single-record views.
     detail_lines = [
         f"[bold]Username:[/bold]     {u.username}",
         f"[bold]Full Name:[/bold]    {u.fullName}",
         f"[bold]Email:[/bold]        {u.email}",
-        f"[bold]idpUsername:[/bold]  {u.idpUsername or ""}",
+        f"[bold]idpUsername:[/bold]  {u.idpUsername or '—'}",
         f"[bold]Role:[/bold]         {u.role}",
         f"[bold]User Type:[/bold]    {u.userLicenseType}",
         f"[bold]Created:[/bold]      {u.created or '—'}",
         f"[bold]Last Login:[/bold]   {u.lastLogin or '—'}",
         f"[bold]Disabled:[/bold]     {'Yes' if u.disabled else 'No'}",
         f"[bold]Provider:[/bold]     {u.provider}",
-        f"[bold]Groups:[/bold]       {u.groups or ""}",
+        f"[bold]Groups:[/bold]       {u.groups or '—'}",
     ]
     console.print(
         Panel("\n".join(detail_lines), title=f"[cyan]{username}[/cyan]", expand=False)
@@ -209,7 +195,7 @@ def cmd_user_folders(
     """List all content folders owned by a user (root folder excluded).
 
     Example:
-        python main.py user folders jdoe
+        esri-cli user folders jdoe
     """
     gis = _connect(env)
     folders = user_ops.user_folders(gis, username)
@@ -230,7 +216,7 @@ def cmd_user_folders(
 
 
 # ---------------------------------------------------------------------------
-# LIFECYCLE commands
+# Lifecycle
 # ---------------------------------------------------------------------------
 
 
@@ -260,8 +246,8 @@ def cmd_create_user(
     For enterprise (IdP-backed) users, provide --idp and omit --password.
 
     Examples:
-        python main.py user create -u jdoe -f Jane -l Doe -e jdoe@co.com --password Secret1!
-        python main.py user create -u jdoe -f Jane -l Doe -e jdoe@co.com --idp jdoe@corp.ad
+        esri-cli user create -u jdoe -f Jane -l Doe -e jdoe@co.com --password Secret1!
+        esri-cli user create -u jdoe -f Jane -l Doe -e jdoe@co.com --idp jdoe@corp.ad
     """
     gis = _connect(env)
 
@@ -311,17 +297,15 @@ def cmd_delete_user(
 ):
     """Delete a user account.
 
-    If the user owns content or groups, you must pass --reassign-to so we
-    know where to move their stuff before deleting. Use --dry-run first to
-    see whether it's safe.
+    Use --dry-run first to check whether it's safe. Pass --reassign-to if the
+    user owns content or groups that need to be moved before deletion.
 
     Examples:
-        python main.py user delete jdoe --dry-run
-        python main.py user delete jdoe --reassign-to admin_user --yes
+        esri-cli user delete jdoe --dry-run
+        esri-cli user delete jdoe --reassign-to admin_user --yes
     """
     gis = _connect(env)
 
-    # Dry run: just check, don't ask for confirmation.
     if dry_run:
         try:
             user_ops.delete_user(gis, username, dry_run=True)
@@ -332,8 +316,6 @@ def cmd_delete_user(
             console.print(f"[yellow]Dry run failed:[/yellow] {e}")
         return
 
-    # Real deletion: confirm unless --yes was passed. Destructive ops should
-    # require the user to explicitly say "I know what I'm doing."
     if not yes:
         confirmed = typer.confirm(
             f"Really delete user '{username}'? This cannot be undone."
@@ -359,7 +341,7 @@ def cmd_update_role(
     """Update a user's role.
 
     Example:
-        python main.py user set-role jdoe org_publisher
+        esri-cli user set-role jdoe org_publisher
     """
     gis = _connect(env)
     ok = user_ops.update_user_role(gis, username, role)
@@ -383,7 +365,7 @@ def cmd_update_type(
     """Update a user's license type.
 
     Example:
-        python main.py user set-type jdoe creatorUT
+        esri-cli user set-type jdoe creatorUT
     """
     gis = _connect(env)
     ok = user_ops.update_user_type(gis, username, user_type)
@@ -397,7 +379,7 @@ def cmd_update_type(
 
 
 # ---------------------------------------------------------------------------
-# ACCESS / SECURITY commands
+# Access / Security
 # ---------------------------------------------------------------------------
 
 
@@ -409,7 +391,7 @@ def cmd_disable_user(
     """Disable a user account (they can no longer sign in).
 
     Example:
-        python main.py user disable jdoe
+        esri-cli user disable jdoe
     """
     gis = _connect(env)
     ok = user_ops.set_user_disabled(gis, username, disable=True)
@@ -431,7 +413,7 @@ def cmd_enable_user(
     """Re-enable a previously disabled user account.
 
     Example:
-        python main.py user enable jdoe
+        esri-cli user enable jdoe
     """
     gis = _connect(env)
     ok = user_ops.set_user_disabled(gis, username, disable=False)
@@ -453,11 +435,11 @@ def cmd_reset_password(
 ):
     """Reset the password for a local (non-enterprise) ArcGIS user.
 
-    This won't work on enterprise/IdP-backed accounts — those passwords
-    are managed by the identity provider, not ArcGIS.
+    Won't work on enterprise/IdP-backed accounts — those passwords live in
+    the identity provider, not ArcGIS.
 
     Example:
-        python main.py user reset-password jdoe --password NewSecret1!
+        esri-cli user reset-password jdoe --password NewSecret1!
     """
     gis = _connect(env)
     ok = user_ops.reset_password(gis, username, new_password)
@@ -479,10 +461,10 @@ def cmd_update_idp(
     """Update the IdP (SAML/enterprise) username linked to an account.
 
     Only applies to enterprise-provider accounts. Built-in 'arcgis' accounts
-    cannot have an IdP username set.
+    cannot have an IdP username.
 
     Example:
-        python main.py user set-idp jdoe jdoe@corp.onmicrosoft.com
+        esri-cli user set-idp jdoe jdoe@corp.onmicrosoft.com
     """
     gis = _connect(env)
     ok = user_ops.update_user_idp(gis, username, idp_username)
@@ -496,7 +478,7 @@ def cmd_update_idp(
 
 
 # ---------------------------------------------------------------------------
-# OFFBOARDING commands
+# Offboarding
 # ---------------------------------------------------------------------------
 
 
@@ -507,11 +489,11 @@ def cmd_check_dependencies(
 ):
     """Check what a user owns before deletion or offboarding.
 
-    Prints a summary of their items, folders, and group memberships so you
-    know what needs to be reassigned before you can delete the account.
+    Shows item count, folders, owned groups, and group memberships so you
+    know what needs reassigning before the account can be deleted.
 
     Example:
-        python main.py user check-deps jdoe
+        esri-cli user check-deps jdoe
     """
     gis = _connect(env)
 
@@ -533,7 +515,6 @@ def cmd_check_dependencies(
         "",
         f"[{status_color}][bold]Status:[/bold] {status_label}[/{status_color}]",
     ]
-
     console.print(
         Panel(
             "\n".join(lines),
@@ -559,13 +540,12 @@ def cmd_transfer_content(
 ):
     """Transfer all content (and optionally groups) from one user to another.
 
-    This is the step to run before deleting an offboarded employee's account.
-    It moves both root-level items and folder contents, recreating folders on
-    the target user's account as needed.
+    Run this before deleting an offboarded employee's account. Moves both
+    root-level and folder items, recreating folders on the target as needed.
 
-    Example:
-        python main.py user transfer --from jdoe --to admin_user
-        python main.py user transfer --from jdoe --to admin_user --no-groups --yes
+    Examples:
+        esri-cli user transfer --from jdoe --to admin_user
+        esri-cli user transfer --from jdoe --to admin_user --no-groups --yes
     """
     gis = _connect(env)
 
@@ -601,13 +581,467 @@ def cmd_transfer_content(
 
 
 # ===========================================================================
-# Future sub-apps go here:
+# GROUP commands
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
+
+@group_app.command("find")
+def cmd_find_group(
+    group_id: Optional[str] = typer.Option(
+        None, "--id", "-i", help="Group ID (exact match)."
+    ),
+    title: Optional[str] = typer.Option(
+        None, "--title", "-t", help="Group title (partial match)."
+    ),
+    owner: Optional[str] = typer.Option(None, "--owner", "-o", help="Owner username."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Search for groups by ID, title, and/or owner.
+
+    All filters are AND-ed. At least one is required.
+
+    Examples:
+        esri-cli group find --title "GIS Team"
+        esri-cli group find --owner jdoe
+        esri-cli group find --id abc123def456
+    """
+    if not any([group_id, title, owner]):
+        console.print(
+            "[yellow]Provide at least one of --id, --title, --owner.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    gis = _connect(env)
+    results = group_ops.find_group(gis, group_id=group_id, title=title, owner=owner)
+
+    if not results:
+        console.print("[yellow]No groups found matching those criteria.[/yellow]")
+        return
+
+    table = Table(title=f"Groups ({len(results)} found)", show_lines=True)
+    table.add_column("ID", style="dim", no_wrap=True)
+    table.add_column("Title", style="cyan")
+    table.add_column("Owner")
+    table.add_column("Access")
+    table.add_column("Members", justify="right")
+
+    for g in results:
+        table.add_row(
+            g.id,
+            g.title,
+            g.owner,
+            g.access,
+            str(g.memberCount) if hasattr(g, "memberCount") else "—",
+        )
+
+    console.print(table)
+
+
+@group_app.command("details")
+def cmd_group_details(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Show full details for a single group.
+
+    Accepts either a group ID (preferred) or title. If the title matches
+    multiple groups, you'll be asked to use the ID instead.
+
+    Example:
+        esri-cli group details abc123def456
+        esri-cli group details "GIS Team"
+    """
+    gis = _connect(env)
+
+    try:
+        g = group_ops.group_details(gis, group)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    lines = [
+        f"[bold]ID:[/bold]          {g.id}",
+        f"[bold]Title:[/bold]       {g.title}",
+        f"[bold]Owner:[/bold]       {g.owner}",
+        f"[bold]Access:[/bold]      {g.access}",
+        f"[bold]Description:[/bold] {g.description or '—'}",
+        f"[bold]Protected:[/bold]   {'Yes' if g.protected else 'No'}",
+        f"[bold]View Only:[/bold]   {'Yes' if g.isViewOnly else 'No'}",
+        f"[bold]Invite Only:[/bold] {'Yes' if g.isInvitationOnly else 'No'}",
+    ]
+    console.print(
+        Panel("\n".join(lines), title=f"[cyan]{g.title}[/cyan]", expand=False)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Membership
+# ---------------------------------------------------------------------------
+
+
+@group_app.command("add-member")
+def cmd_add_member(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    username: str = typer.Argument(..., help="Username to add."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Add a user to a group.
+
+    Example:
+        esri-cli group add-member abc123def456 jdoe
+        esri-cli group add-member "GIS Team" jdoe
+    """
+    gis = _connect(env)
+
+    try:
+        group_ops.add_group_member(gis, group=group, username=username)
+        console.print(
+            f"[green]✓[/green] Added [cyan]{username}[/cyan] to group [bold]{group}[/bold]."
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@group_app.command("remove-member")
+def cmd_remove_member(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    username: str = typer.Argument(..., help="Username to remove."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Remove a user from a group.
+
+    Example:
+        esri-cli group remove-member abc123def456 jdoe
+    """
+    gis = _connect(env)
+
+    try:
+        group_ops.remove_group_member(gis, group=group, username=username)
+        console.print(
+            f"[green]✓[/green] Removed [cyan]{username}[/cyan] from group [bold]{group}[/bold]."
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@group_app.command("set-member-role")
+def cmd_update_member_role(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    username: str = typer.Argument(..., help="Username to update."),
+    role: str = typer.Argument(..., help="New role: member, admin, or owner."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Update a member's role within a group.
+
+    Valid roles: member, admin, owner.
+
+    Example:
+        esri-cli group set-member-role abc123def456 jdoe admin
+    """
+    gis = _connect(env)
+
+    try:
+        group_ops.update_member_role(gis, group=group, username=username, role=role)
+        console.print(
+            f"[green]✓[/green] Role for [cyan]{username}[/cyan] in group "
+            f"[bold]{group}[/bold] set to [bold]{role}[/bold]."
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@group_app.command("transfer-ownership")
+def cmd_transfer_group_ownership(
+    group_id: str = typer.Argument(
+        ..., help="Group ID (not title — ownership transfers need an exact ID)."
+    ),
+    new_owner: str = typer.Argument(..., help="Username of the new owner."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Transfer ownership of a group to another user.
+
+    Uses group ID rather than title to avoid any ambiguity — run
+    'esri-cli group find --title ...' first if you need to look it up.
+
+    Example:
+        esri-cli group transfer-ownership abc123def456 new_owner_username
+    """
+    gis = _connect(env)
+
+    if not yes:
+        confirmed = typer.confirm(
+            f"Transfer ownership of group '{group_id}' to '{new_owner}'?"
+        )
+        if not confirmed:
+            console.print("[dim]Aborted.[/dim]")
+            raise typer.Exit(0)
+
+    try:
+        group_ops.transfer_group_ownership(
+            gis, group_id=group_id, new_owner_username=new_owner
+        )
+        console.print(
+            f"[green]✓[/green] Ownership of group [bold]{group_id}[/bold] transferred to [cyan]{new_owner}[/cyan]."
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+
+
+@group_app.command("create")
+def cmd_create_group(
+    title: str = typer.Option(..., "--title", "-t", help="Group title."),
+    description: Optional[str] = typer.Option(
+        None, "--description", "-d", help="Group description."
+    ),
+    access: str = typer.Option(
+        "org", "--access", "-a", help="Access level: private, org, or public."
+    ),
+    tags: Optional[str] = typer.Option(
+        None, "--tags", help="Comma-separated tags (e.g. 'gis,maps,team')."
+    ),
+    invite_only: bool = typer.Option(
+        False, "--invite-only", help="Require invitation to join."
+    ),
+    view_only: bool = typer.Option(
+        False, "--view-only", help="Members can only view, not contribute."
+    ),
+    protected: bool = typer.Option(
+        False, "--protected", help="Protect from accidental deletion."
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Create a new group.
+
+    Examples:
+        esri-cli group create --title "GIS Team" --access org
+        esri-cli group create --title "Public Maps" --access public --tags "maps,public" --protected
+    """
+    gis = _connect(env)
+
+    # Split the comma-separated tags string into a list, or pass empty.
+    tag_list = [t.strip() for t in tags.split(",")] if tags else []
+
+    try:
+        g = group_ops.create_group(
+            gis,
+            title=title,
+            description=description,
+            access=access,
+            tags=tag_list,
+            isInvitationOnly=invite_only,
+            isViewOnly=view_only,
+            protected=protected,
+        )
+        console.print(
+            f"[green]✓[/green] Created group [cyan]{g.title}[/cyan] (ID: [dim]{g.id}[/dim])."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@group_app.command("update")
+def cmd_update_group(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    title: Optional[str] = typer.Option(None, "--title", "-t", help="New title."),
+    description: Optional[str] = typer.Option(
+        None, "--description", "-d", help="New description."
+    ),
+    access: Optional[str] = typer.Option(
+        None, "--access", "-a", help="New access level: private, org, or public."
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Update a group's title, description, and/or access level.
+
+    At least one of --title, --description, or --access is required.
+
+    Examples:
+        esri-cli group update abc123 --title "New Name"
+        esri-cli group update "GIS Team" --access public
+    """
+    if not any([title, description, access]):
+        console.print(
+            "[yellow]Provide at least one of --title, --description, --access.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    gis = _connect(env)
+
+    try:
+        group_ops.update_group(
+            gis, group=group, title=title, description=description, access=access
+        )
+        console.print(f"[green]✓[/green] Group [bold]{group}[/bold] updated.")
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@group_app.command("delete")
+def cmd_delete_group(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Check whether deletion is safe without actually deleting.",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Delete a group.
+
+    Protected groups will be rejected even without --dry-run. Use --dry-run
+    to verify first.
+
+    Examples:
+        esri-cli group delete abc123def456 --dry-run
+        esri-cli group delete abc123def456 --yes
+    """
+    gis = _connect(env)
+
+    if dry_run:
+        try:
+            group_ops.delete_group(gis, group, dry_run=True)
+            console.print(
+                f"[green]✓ Dry run passed.[/green] Group '{group}' can be deleted."
+            )
+        except ValueError as e:
+            console.print(f"[yellow]Dry run failed:[/yellow] {e}")
+        return
+
+    if not yes:
+        confirmed = typer.confirm(
+            f"Really delete group '{group}'? This cannot be undone."
+        )
+        if not confirmed:
+            console.print("[dim]Aborted.[/dim]")
+            raise typer.Exit(0)
+
+    try:
+        group_ops.delete_group(gis, group)
+        console.print(f"[green]✓[/green] Deleted group [bold]{group}[/bold].")
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Content
+# ---------------------------------------------------------------------------
+
+
+@group_app.command("content")
+def cmd_group_content(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """List all items shared with a group.
+
+    Example:
+        esri-cli group content abc123def456
+        esri-cli group content "GIS Team"
+    """
+    gis = _connect(env)
+
+    try:
+        items = group_ops.group_content(gis, group)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    if not items:
+        console.print(f"[yellow]No items found in group '{group}'.[/yellow]")
+        return
+
+    table = Table(title=f"Content in '{group}' ({len(items)} items)", show_lines=True)
+    table.add_column("ID", style="dim", no_wrap=True)
+    table.add_column("Title", style="cyan")
+    table.add_column("Type")
+    table.add_column("Owner")
+
+    for item in items:
+        table.add_row(
+            item.id,
+            item.title,
+            item.type,
+            item.owner,
+        )
+
+    console.print(table)
+
+
+@group_app.command("add-item")
+def cmd_add_item(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    item_id: str = typer.Argument(..., help="Item ID to share with the group."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Share an item with a group.
+
+    Example:
+        esri-cli group add-item abc123def456 item_id_here
+    """
+    gis = _connect(env)
+
+    try:
+        group_ops.add_item(gis, group=group, item=item_id)
+        console.print(
+            f"[green]✓[/green] Item [dim]{item_id}[/dim] shared with group [bold]{group}[/bold]."
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@group_app.command("remove-item")
+def cmd_remove_item(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    item_id: str = typer.Argument(..., help="Item ID to unshare from the group."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Unshare an item from a group.
+
+    Note: this calls item.share() with the group removed. If the item is
+    shared with other groups, those are left untouched.
+
+    Example:
+        esri-cli group remove-item abc123def456 item_id_here
+    """
+    gis = _connect(env)
+
+    try:
+        group_ops.remove_item(gis, group=group, item=item_id)
+        console.print(
+            f"[green]✓[/green] Item [dim]{item_id}[/dim] removed from group [bold]{group}[/bold]."
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+# ===========================================================================
+# Future domains:
 #
-#   @group_app.command("list") ...
-#   @content_app.command("search") ...
+#   content_app = typer.Typer(help="Content management commands.")
+#   app.add_typer(content_app, name="content")
 #
-# Then wire them in near the top:
-#   app.add_typer(group_app, name="group")
+#   audit_app = typer.Typer(help="Audit and reporting commands.")
+#   app.add_typer(audit_app, name="audit")
 # ===========================================================================
 
 
