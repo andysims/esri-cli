@@ -243,6 +243,110 @@ def transfer_user_groups(
 # add item to group
 # remove item from group
 
+# ======== Content ========
+def group_content(
+    gis: GIS,
+    group: str,
+) -> list[ArcGISGroupItem]:
+    """Return all items (content) belonging to a group.
+    
+    Accepts either a group ID or group title (name).
+    Returns an empty list if the group has no content.
+    """
+
+    raw_group = _resolve_group(gis, group)
+
+    log.info("Fetching content for group '%s' (ID: %s)", raw_group.title, raw_group.id)
+
+    try:
+        # Get all items in the group
+        raw_items = raw_group.content()
+
+        items: list[ArcGISGroupItem] = [
+            ArcGISGroupItem.from_arcgis_item(item) for item in raw_items
+        ]
+
+        if not items:
+            log.warning("Group '%s' contains no items", raw_group.title)
+        else:
+            log.info("Found %d item(s) in group '%s'", len(items), raw_group.title)
+
+        return items
+
+    except Exception:
+        log.exception("Error fetching content for group '%s'", raw_group.title)
+        raise
+
+def add_item(
+    gis: GIS,
+    group: str,
+    item: str | Item,
+) -> None:
+    """Share an item with a group (add item to group).
+    
+    group: Group ID or title (resolved automatically)
+    item: Item ID (str) or Item object
+    """
+    raw_group = _resolve_group(gis, group)
+
+    # Resolve item
+    if isinstance(item, str):
+        raw_item: Item = gis.content.get(item)
+        if not raw_item:
+            raise ValueError(f"Item not found: {item}")
+    else:
+        raw_item = item
+
+    log.info("Adding item '%s' to group '%s'", raw_item.title, raw_group.title)
+
+    try:
+        result = raw_item.share(groups=[raw_group.id])
+
+        if result and result.get("success"):
+            log.info("Successfully added item '%s' to group '%s'", 
+                     raw_item.title, raw_group.title)
+        else:
+            raise RuntimeError(f"Failed to share item with group (result: {result})")
+
+    except Exception:
+        log.exception("Failed to add item '%s' to group '%s'", 
+                     raw_item.title, raw_group.title)
+        raise
+
+
+def remove_item(
+    gis: GIS,
+    group: str,
+    item: str | Item,
+) -> None:
+    """Remove an item from a group (unshare from the group)."""
+    raw_group = _resolve_group(gis, group)
+
+    # Resolve item
+    if isinstance(item, str):
+        raw_item: Item = gis.content.get(item)
+        if not raw_item:
+            raise ValueError(f"Item not found: {item}")
+    else:
+        raw_item = item
+
+    log.info("Removing item '%s' from group '%s'", raw_item.title, raw_group.title)
+
+    try:
+        # Unshare from specific group
+        result = raw_item.share(groups=[], clear_groups=False)
+
+        if result and result.get("success"):
+            log.info("Successfully removed item '%s' from group '%s'", 
+                     raw_item.title, raw_group.title)
+        else:
+            raise RuntimeError(f"Failed to remove item from group")
+
+    except Exception:
+        log.exception("Failed to remove item '%s' from group '%s'", 
+                     raw_item.title, raw_group.title)
+        raise
+
 
 """
 # Search
@@ -262,7 +366,7 @@ def transfer_user_groups(
 - transfer_user_groups: DONE (transfers groups from one user to another)
 
 # Content
-- group_content
-- add_item_to_group
-- remove_item_from_group
+- group_content: DONE
+- add_item_to_group: DONE
+- remove_item_from_group: DONE
 """
