@@ -1,6 +1,9 @@
-from arcgis.gis import GIS, Group, User
-from .models import ArcGISGroup, ArcGISGroupItem
 import logging
+
+from arcgis.gis import GIS, Group, User, Item
+from .models import ArcGISGroup, ArcGISGroupItem
+
+# from .users import get_user
 
 log = logging.getLogger(__name__)
 
