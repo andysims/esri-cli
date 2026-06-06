@@ -1,7 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from .utils import esri_timestamp_to_str
 import datetime as dt
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 
 @dataclass
@@ -84,13 +84,17 @@ class ArcGISGroup:
         # getting members
         raw_members = group_obj.get_members()
         all_users = (
-            [raw_members.get("owner")] if raw_members.get("owner") else []
-        ) + raw_members.get("admins", []) + raw_members.get("members", [])
+            ([raw_members.get("owner")] if raw_members.get("owner") else [])
+            + raw_members.get("admins", [])
+            + raw_members.get("members", [])
+        )
         member_count = len(set(all_users))
-        
+
         # Safely get item_count
         try:
-            item_count = len(group_obj.content()) if hasattr(group_obj, "content") else 0
+            item_count = (
+                len(group_obj.content()) if hasattr(group_obj, "content") else 0
+            )
         except Exception:
             item_count = 0
 
@@ -108,7 +112,7 @@ class ArcGISGroup:
             protected=getattr(group_obj, "protected", False),
             item_count=item_count,
             members=raw_members,
-            member_count=member_count
+            member_count=member_count,
         )
 
 
@@ -134,7 +138,7 @@ class ArcGISGroupItem:
         return round(self.size_bytes / (1024 * 1024), 2)
 
     @classmethod
-    def from_arcgis_item(cls, item: Item) -> "ArcGISGroupItem":
+    def from_arcgis_item(cls, item) -> "ArcGISGroupItem":
         """Instantiates from an ArcGIS API for Python Item object."""
         return cls(
             id=getattr(item, "id", ""),

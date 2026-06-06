@@ -1,7 +1,9 @@
 from arcgis.gis import GIS, Group, User
+from .models import ArcGISGroup, ArcGISGroupItem
 import logging
 
 log = logging.getLogger(__name__)
+
 
 # ======== Helper Func ========
 def _resolve_group(gis: GIS, group: str):
@@ -19,7 +21,9 @@ def _resolve_group(gis: GIS, group: str):
     if len(results) == 0:
         raise ValueError(f"Group not found: {group}")
     if len(results) > 1:
-        raise ValueError(f"Multiple groups found with title '{group}'. Use group ID instead.")
+        raise ValueError(
+            f"Multiple groups found with title '{group}'. Use group ID instead."
+        )
 
     return results[0]
 
@@ -53,9 +57,7 @@ def find_group(
     try:
         raw_groups: list = gis.groups.search(query=query_string)
 
-        groups: list[ArcGISGroup] = [
-            ArcGISGroup.from_arcgis(g) for g in raw_groups
-        ]
+        groups: list[ArcGISGroup] = [ArcGISGroup.from_arcgis(g) for g in raw_groups]
 
         if not groups:
             log.warning("Query returned no results: %s", query_string)
@@ -69,12 +71,9 @@ def find_group(
         raise
 
 
-def group_details(
-    gis: GIS, 
-    group: str | ArcGISGroup | None = None
-) -> ArcGISGroup:
+def group_details(gis: GIS, group: str | ArcGISGroup | None = None) -> ArcGISGroup:
     """Return an ArcGISGroup dataclass for the given group ID or title.
-    
+
     Accepts either:
       - str: treated as group ID first, then falls back to title search
       - ArcGISGroup: just converts it (noop basically)
@@ -90,7 +89,7 @@ def group_details(
 
     # Try exact ID lookup first (most common + efficient)
     raw_group = gis.groups.get(group)
-    
+
     if not raw_group:
         # Fallback: search by title
         results = gis.groups.search(query=f"title:{group}")
@@ -113,11 +112,13 @@ def add_group_member(
     username: str,
 ) -> None:
     """Add a user as a member to a group.
-    
+
     group: Group ID or title (resolved via group_details)
     username: Username to add
     """
-    raw_group = group_details(gis, group)  # This returns ArcGISGroup, but we need raw for methods
+    raw_group = group_details(
+        gis, group
+    )  # This returns ArcGISGroup, but we need raw for methods
     # resolving to raw Group object
     if isinstance(group, str):
         raw_group_obj = gis.groups.get(group) or _get_group_by_title(gis, group)
@@ -134,11 +135,17 @@ def add_group_member(
     try:
         result = raw_group_obj.add_users([username])
         if result and not result.get("notAdded"):
-            log.info("Successfully added %s to group '%s'", username, raw_group_obj.title)
+            log.info(
+                "Successfully added %s to group '%s'", username, raw_group_obj.title
+            )
         else:
-            raise RuntimeError(f"Failed to add {username} to group (API result: {result})")
+            raise RuntimeError(
+                f"Failed to add {username} to group (API result: {result})"
+            )
     except Exception:
-        log.exception("Failed to add user %s to group '%s'", username, raw_group_obj.title)
+        log.exception(
+            "Failed to add user %s to group '%s'", username, raw_group_obj.title
+        )
         raise
 
 
@@ -155,11 +162,15 @@ def remove_group_member(
     try:
         result = raw_group_obj.remove_users([username])
         if result and not result.get("notRemoved"):
-            log.info("Successfully removed %s from group '%s'", username, raw_group_obj.title)
+            log.info(
+                "Successfully removed %s from group '%s'", username, raw_group_obj.title
+            )
         else:
             raise RuntimeError(f"Failed to remove {username} from group")
     except Exception:
-        log.exception("Failed to remove user %s from group '%s'", username, raw_group_obj.title)
+        log.exception(
+            "Failed to remove user %s from group '%s'", username, raw_group_obj.title
+        )
         raise
 
 
@@ -170,7 +181,7 @@ def update_member_role(
     role: str,  # "member", "admin", or "owner"
 ) -> None:
     """Update a member's role in the group.
-    
+
     role must be one of: 'member', 'admin', 'owner'
     """
     if role not in ("member", "admin", "owner"):
@@ -179,17 +190,25 @@ def update_member_role(
     raw_group_obj = _resolve_group(gis, group)
     user = get_user(gis, username)
 
-    log.info("Updating role of %s in group '%s' to %s", username, raw_group_obj.title, role)
+    log.info(
+        "Updating role of %s in group '%s' to %s", username, raw_group_obj.title, role
+    )
 
     try:
         success = raw_group_obj.update_member(username=username, role=role)
         if success:
-            log.info("Successfully updated %s role to '%s' in group '%s'", 
-                     username, role, raw_group_obj.title)
+            log.info(
+                "Successfully updated %s role to '%s' in group '%s'",
+                username,
+                role,
+                raw_group_obj.title,
+            )
         else:
             raise RuntimeError(f"Failed to update role for {username}")
     except Exception:
-        log.exception("Failed to update role for %s in group '%s'", username, raw_group_obj.title)
+        log.exception(
+            "Failed to update role for %s in group '%s'", username, raw_group_obj.title
+        )
         raise
 
 
@@ -276,8 +295,11 @@ def create_group(
 
         arcgis_group = ArcGISGroup.from_arcgis(new_group)
 
-        log.info("Successfully created group '%s' (ID: %s)", 
-                arcgis_group.title, arcgis_group.id)
+        log.info(
+            "Successfully created group '%s' (ID: %s)",
+            arcgis_group.title,
+            arcgis_group.id,
+        )
 
         return arcgis_group
 
@@ -292,18 +314,23 @@ def delete_group(
     dry_run: bool = False,
 ) -> None:
     """Delete a group.
-    
+
     group: Group ID or title (resolved automatically)
     Use dry_run=True to test without actually deleting.
     """
     raw_group = _resolve_group(gis, group)
 
     if dry_run:
-        log.info("Dry run: Group '%s' (ID: %s) would be deleted.", 
-                raw_group.title, raw_group.id)
+        log.info(
+            "Dry run: Group '%s' (ID: %s) would be deleted.",
+            raw_group.title,
+            raw_group.id,
+        )
         # safety check
         if raw_group.protected:
-            raise ValueError(f"Group '{raw_group.title}' is protected and cannot be deleted.")
+            raise ValueError(
+                f"Group '{raw_group.title}' is protected and cannot be deleted."
+            )
         return
 
     log.info("Deleting group '%s' (ID: %s)", raw_group.title, raw_group.id)
@@ -314,10 +341,14 @@ def delete_group(
         if success:
             log.info("Successfully deleted group '%s'", raw_group.title)
         else:
-            raise RuntimeError(f"Failed to delete group '{raw_group.title}' (API returned False)")
+            raise RuntimeError(
+                f"Failed to delete group '{raw_group.title}' (API returned False)"
+            )
 
     except Exception:
-        log.exception("Failed to delete group '%s' (ID: %s)", raw_group.title, raw_group.id)
+        log.exception(
+            "Failed to delete group '%s' (ID: %s)", raw_group.title, raw_group.id
+        )
         raise
 
 
@@ -329,18 +360,23 @@ def update_group(
     access: str | None = None,
 ) -> None:
     """Update properties of a group (title, description, and/or access).
-    
+
     group: Group ID or title (resolved via _resolve_group)
     At least one of title, description, or access must be provided.
     """
     if not any([title, description, access]):
-        raise ValueError("At least one of title, description, or access must be provided")
+        raise ValueError(
+            "At least one of title, description, or access must be provided"
+        )
 
     raw_group = _resolve_group(gis, group)
 
     log.info(
         "Updating group '%s' (ID: %s) — title=%s, access=%s",
-        raw_group.title, raw_group.id, title, access
+        raw_group.title,
+        raw_group.id,
+        title,
+        access,
     )
 
     try:
@@ -363,8 +399,11 @@ def update_group(
             raise RuntimeError(f"Group update returned False for group {raw_group.id}")
 
     except Exception:
-        log.exception("Failed to update group '%s' (ID: %s)", raw_group.title, raw_group.id)
+        log.exception(
+            "Failed to update group '%s' (ID: %s)", raw_group.title, raw_group.id
+        )
         raise
+
 
 # ======== Content ========
 def group_content(
@@ -372,7 +411,7 @@ def group_content(
     group: str,
 ) -> list[ArcGISGroupItem]:
     """Return all items (content) belonging to a group.
-    
+
     Accepts either a group ID or group title (name).
     Returns an empty list if the group has no content.
     """
@@ -400,13 +439,14 @@ def group_content(
         log.exception("Error fetching content for group '%s'", raw_group.title)
         raise
 
+
 def add_item(
     gis: GIS,
     group: str,
-    item: str | Item,
+    item: str,
 ) -> None:
     """Share an item with a group (add item to group).
-    
+
     group: Group ID or title (resolved automatically)
     item: Item ID (str) or Item object
     """
@@ -414,7 +454,7 @@ def add_item(
 
     # Resolve item
     if isinstance(item, str):
-        raw_item: Item = gis.content.get(item)
+        raw_item = gis.content.get(item)
         if not raw_item:
             raise ValueError(f"Item not found: {item}")
     else:
@@ -426,28 +466,32 @@ def add_item(
         result = raw_item.share(groups=[raw_group.id])
 
         if result and result.get("success"):
-            log.info("Successfully added item '%s' to group '%s'", 
-                     raw_item.title, raw_group.title)
+            log.info(
+                "Successfully added item '%s' to group '%s'",
+                raw_item.title,
+                raw_group.title,
+            )
         else:
             raise RuntimeError(f"Failed to share item with group (result: {result})")
 
     except Exception:
-        log.exception("Failed to add item '%s' to group '%s'", 
-                     raw_item.title, raw_group.title)
+        log.exception(
+            "Failed to add item '%s' to group '%s'", raw_item.title, raw_group.title
+        )
         raise
 
 
 def remove_item(
     gis: GIS,
     group: str,
-    item: str | Item,
+    item: str,
 ) -> None:
     """Remove an item from a group (unshare from the group)."""
     raw_group = _resolve_group(gis, group)
 
     # Resolve item
     if isinstance(item, str):
-        raw_item: Item = gis.content.get(item)
+        raw_item = gis.content.get(item)
         if not raw_item:
             raise ValueError(f"Item not found: {item}")
     else:
@@ -460,14 +504,20 @@ def remove_item(
         result = raw_item.share(groups=[], clear_groups=False)
 
         if result and result.get("success"):
-            log.info("Successfully removed item '%s' from group '%s'", 
-                     raw_item.title, raw_group.title)
+            log.info(
+                "Successfully removed item '%s' from group '%s'",
+                raw_item.title,
+                raw_group.title,
+            )
         else:
             raise RuntimeError(f"Failed to remove item from group")
 
     except Exception:
-        log.exception("Failed to remove item '%s' from group '%s'", 
-                     raw_item.title, raw_group.title)
+        log.exception(
+            "Failed to remove item '%s' from group '%s'",
+            raw_item.title,
+            raw_group.title,
+        )
         raise
 
 
