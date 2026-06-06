@@ -110,3 +110,44 @@ class ArcGISGroup:
             members=raw_members,
             member_count=member_count
         )
+
+
+@dataclass
+class ArcGISGroupItem:
+    id: str
+    title: str
+    type: str
+    owner: str
+    access: str
+    created: str | None
+    modified: str | None
+    size_bytes: int
+    numViews: int
+    protected: bool
+    tags: List[str]
+    url: Optional[str] = None
+    description: Optional[str] = None
+
+    @property
+    def size_mb(self) -> float:
+        """Helper property to quickly read the item size in Megabytes."""
+        return round(self.size_bytes / (1024 * 1024), 2)
+
+    @classmethod
+    def from_arcgis_item(cls, item: Item) -> "ArcGISGroupItem":
+        """Instantiates from an ArcGIS API for Python Item object."""
+        return cls(
+            id=getattr(item, "id", ""),
+            title=getattr(item, "title", ""),
+            type=getattr(item, "type", ""),
+            owner=getattr(item, "owner", ""),
+            access=getattr(item, "access", "private"),
+            created=esri_timestamp_to_str(getattr(item, "created", None)),
+            modified=esri_timestamp_to_str(getattr(item, "modified", None)),
+            size_bytes=getattr(item, "size", 0),
+            numViews=getattr(item, "numViews", 0),
+            protected=getattr(item, "protected", False),
+            tags=getattr(item, "tags", []),
+            url=getattr(item, "url", None),
+            description=getattr(item, "description", None),
+        )
