@@ -238,8 +238,88 @@ def transfer_user_groups(
 
 
 # ==== Lifecycle ========
-# create group
-# delete group
+def create_group(
+    gis: GIS,
+    title: str,
+    description: str | None = None,
+    access: str = "org",
+    tags: list[str] | None = None,
+    isInvitationOnly: bool = False,
+    isViewOnly: bool = False,
+    protected: bool = False,
+) -> ArcGISGroup:
+    """Create a new group and return the ArcGISGroup dataclass."""
+    if not title:
+        raise ValueError("title is required")
+
+    if access not in ("private", "org", "public"):
+        raise ValueError("access must be one of: 'private', 'org', 'public'")
+
+    if tags is None:
+        tags = []
+
+    log.info("Creating new group: '%s' (access=%s)", title, access)
+
+    try:
+        new_group = gis.groups.create(
+            title=title,
+            description=description,
+            access=access,
+            tags=",".join(tags) if tags else None,
+            isInvitationOnly=isInvitationOnly,
+            isViewOnly=isViewOnly,
+            protected=protected,
+        )
+
+        if not new_group:
+            raise RuntimeError("Group creation failed — API returned None")
+
+        arcgis_group = ArcGISGroup.from_arcgis(new_group)
+
+        log.info("Successfully created group '%s' (ID: %s)", 
+                arcgis_group.title, arcgis_group.id)
+
+        return arcgis_group
+
+    except Exception:
+        log.exception("Failed to create group '%s'", title)
+        raise
+
+
+def delete_group(
+    gis: GIS,
+    group: str,
+    dry_run: bool = False,
+) -> None:
+    """Delete a group.
+    
+    group: Group ID or title (resolved automatically)
+    Use dry_run=True to test without actually deleting.
+    """
+    raw_group = _resolve_group(gis, group)
+
+    if dry_run:
+        log.info("Dry run: Group '%s' (ID: %s) would be deleted.", 
+                raw_group.title, raw_group.id)
+        # safety check
+        if raw_group.protected:
+            raise ValueError(f"Group '{raw_group.title}' is protected and cannot be deleted.")
+        return
+
+    log.info("Deleting group '%s' (ID: %s)", raw_group.title, raw_group.id)
+
+    try:
+        success = raw_group.delete()
+
+        if success:
+            log.info("Successfully deleted group '%s'", raw_group.title)
+        else:
+            raise RuntimeError(f"Failed to delete group '{raw_group.title}' (API returned False)")
+
+    except Exception:
+        log.exception("Failed to delete group '%s' (ID: %s)", raw_group.title, raw_group.id)
+        raise
+
 
 def update_group(
     gis: GIS,
@@ -397,8 +477,8 @@ def remove_item(
 - group_details: DONE
 
 # Lifecycle
-- create_group
-- delete_group
+- create_group: DONE
+- delete_group: DONE
 - update_group: DONE
 
 # Membership
