@@ -3,6 +3,26 @@ import logging
 
 log = logging.getLogger(__name__)
 
+# ======== Helper Func ========
+def _resolve_group(gis: GIS, group: str):
+    """Internal helper: resolve group ID or title to raw Group object."""
+    if not isinstance(group, str):
+        raise TypeError("group must be a string (ID or title)")
+
+    # Try ID first
+    raw_group = gis.groups.get(group)
+    if raw_group:
+        return raw_group
+
+    # Fallback to title search
+    results = gis.groups.search(f"title:{group}")
+    if len(results) == 0:
+        raise ValueError(f"Group not found: {group}")
+    if len(results) > 1:
+        raise ValueError(f"Multiple groups found with title '{group}'. Use group ID instead.")
+
+    return results[0]
+
 
 # ======== Search ========
 def find_group(
@@ -88,6 +108,92 @@ def group_details(
 # group_members
 
 # ======== Membership ========
+def add_group_member(
+    gis: GIS,
+    group: str,
+    username: str,
+) -> None:
+    """Add a user as a member to a group.
+    
+    group: Group ID or title (resolved via group_details)
+    username: Username to add
+    """
+    raw_group = group_details(gis, group)  # This returns ArcGISGroup, but we need raw for methods
+    # resolving to raw Group object
+    if isinstance(group, str):
+        raw_group_obj = gis.groups.get(group) or _get_group_by_title(gis, group)
+    else:
+        raw_group_obj = group
+
+    if not raw_group_obj:
+        raise ValueError(f"Group not found: {group}")
+
+    user = get_user(gis, username)
+
+    log.info("Adding user %s to group '%s'", username, raw_group_obj.title)
+
+    try:
+        result = raw_group_obj.add_users([username])
+        if result and not result.get("notAdded"):
+            log.info("Successfully added %s to group '%s'", username, raw_group_obj.title)
+        else:
+            raise RuntimeError(f"Failed to add {username} to group (API result: {result})")
+    except Exception:
+        log.exception("Failed to add user %s to group '%s'", username, raw_group_obj.title)
+        raise
+
+
+def remove_group_member(
+    gis: GIS,
+    group: str,
+    username: str,
+) -> None:
+    """Remove a user from a group."""
+    raw_group_obj = _resolve_group(gis, group)
+
+    log.info("Removing user %s from group '%s'", username, raw_group_obj.title)
+
+    try:
+        result = raw_group_obj.remove_users([username])
+        if result and not result.get("notRemoved"):
+            log.info("Successfully removed %s from group '%s'", username, raw_group_obj.title)
+        else:
+            raise RuntimeError(f"Failed to remove {username} from group")
+    except Exception:
+        log.exception("Failed to remove user %s from group '%s'", username, raw_group_obj.title)
+        raise
+
+
+def update_member_role(
+    gis: GIS,
+    group: str,
+    username: str,
+    role: str,  # "member", "admin", or "owner"
+) -> None:
+    """Update a member's role in the group.
+    
+    role must be one of: 'member', 'admin', 'owner'
+    """
+    if role not in ("member", "admin", "owner"):
+        raise ValueError("role must be 'member', 'admin', or 'owner'")
+
+    raw_group_obj = _resolve_group(gis, group)
+    user = get_user(gis, username)
+
+    log.info("Updating role of %s in group '%s' to %s", username, raw_group_obj.title, role)
+
+    try:
+        success = raw_group_obj.update_member(username=username, role=role)
+        if success:
+            log.info("Successfully updated %s role to '%s' in group '%s'", 
+                     username, role, raw_group_obj.title)
+        else:
+            raise RuntimeError(f"Failed to update role for {username}")
+    except Exception:
+        log.exception("Failed to update role for %s in group '%s'", username, raw_group_obj.title)
+        raise
+
+
 def transfer_group_ownership(
     gis: GIS,
     group_id: str,
