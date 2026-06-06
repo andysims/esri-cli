@@ -5,8 +5,86 @@ log = logging.getLogger(__name__)
 
 
 # ======== Search ========
-# find_group (by name, owner, tag)
-# group_details
+def find_group(
+    gis: GIS,
+    group_id: str | None = None,
+    title: str | None = None,
+    owner: str | None = None,
+) -> list[ArcGISGroup]:
+    """Search for groups by any combination of group_id, title, or owner.
+
+    All provided criteria are AND-ed together. Returns an empty list if no
+    criteria are given or no results are found.
+    """
+    query_parts = []
+    if group_id:
+        query_parts.append(f"id:{group_id}")
+    if title:
+        query_parts.append(f"title:{title}")
+    if owner:
+        query_parts.append(f"owner:{owner}")
+
+    if not query_parts:
+        log.warning("No search criteria provided for find_group")
+        return []
+
+    query_string = " AND ".join(query_parts)
+
+    try:
+        raw_groups: list = gis.groups.search(query=query_string)
+
+        groups: list[ArcGISGroup] = [
+            ArcGISGroup.from_arcgis(g) for g in raw_groups
+        ]
+
+        if not groups:
+            log.warning("Query returned no results: %s", query_string)
+        else:
+            log.info("Found %d group(s) for query: %s", len(groups), query_string)
+
+        return groups
+
+    except Exception:
+        log.exception("Error during group search with query: %s", query_string)
+        raise
+
+
+def group_details(
+    gis: GIS, 
+    group: str | ArcGISGroup | None = None
+) -> ArcGISGroup:
+    """Return an ArcGISGroup dataclass for the given group ID or title.
+    
+    Accepts either:
+      - str: treated as group ID first, then falls back to title search
+      - ArcGISGroup: just converts it (noop basically)
+    """
+    if isinstance(group, ArcGISGroup):
+        return group
+
+    if not isinstance(group, str):
+        raise TypeError("group must be a str (ID or title) or ArcGISGroup")
+
+    if not group:
+        raise ValueError("Group ID or title cannot be empty")
+
+    # Try exact ID lookup first (most common + efficient)
+    raw_group = gis.groups.get(group)
+    
+    if not raw_group:
+        # Fallback: search by title
+        results = gis.groups.search(query=f"title:{group}")
+        if len(results) == 0:
+            raise ValueError(f"No group found with ID or title: {group}")
+        elif len(results) > 1:
+            raise ValueError(
+                f"Multiple groups found with title '{group}'. "
+                f"Use the group ID instead for unambiguous lookup."
+            )
+        raw_group = results[0]
+
+    return ArcGISGroup.from_arcgis(raw_group)
+
 # group_members
 
 # ======== Membership ========
