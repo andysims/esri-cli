@@ -671,6 +671,8 @@ def cmd_group_details(
         f"[bold]Owner:[/bold]       {g.owner}",
         f"[bold]Created:[/bold]     {g.created}",
         f"[bold]Access:[/bold]      {g.access}",
+        f"[bold]Members:[/bold]     {g.member_count}",
+        f"[bold]Items:[/bold]       {g.item_count}",
         f"[bold]Description:[/bold] {g.description or '—'}",
         f"[bold]Protected:[/bold]   {'Yes' if g.protected else 'No'}",
         f"[bold]View Only:[/bold]   {'Yes' if g.isViewOnly else 'No'}",
