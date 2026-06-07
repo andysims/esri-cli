@@ -6,7 +6,8 @@ from collections import Counter  # probably throw this into reporting
 
 from .auth import gis_conn, load_config
 from .utils import esri_timestamp_to_str
-from .users import find_user, get_user
+from .users import find_user
+from .common import get_user
 from .models import ArcGISUser
 
 log = logging.getLogger(__name__)

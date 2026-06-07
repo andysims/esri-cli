@@ -4,22 +4,13 @@ from arcgis.gis import GIS, User
 from .utils import esri_timestamp_to_str
 from .groups import transfer_user_groups
 from .models import ArcGISUser, FolderInfo
+from .common import get_user
 
 log = logging.getLogger(__name__)
 logging.getLogger("arcgis").setLevel(logging.ERROR)  # will move into main.py
 
 
 # ======== SEARCH ========
-def get_user(gis: GIS, username: str) -> User:
-    """Fetch a user by username; raise ValueError if not found."""
-    user = gis.users.get(username)
-    if not user:
-        log.warning("Username not found: %s", username)
-        raise ValueError(f"Username was not found for {username}")
-    log.info("Username found: %s", username)
-    return user
-
-
 def user_details(gis: GIS, user: str | User) -> ArcGISUser:
     """Return an ArcGISUser dataclass for the given username or User object."""
     if isinstance(user, str):

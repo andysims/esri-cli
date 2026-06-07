@@ -6,7 +6,7 @@ from arcgis.gis import GIS, Item
 from .utils import esri_timestamp_to_str
 from .models import ArcGISItem
 from .groups import _resolve_group
-from .users import get_user
+from .common import get_user
 
 log = logging.getLogger(__name__)
 

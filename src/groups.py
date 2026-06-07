@@ -3,6 +3,8 @@ import logging
 from arcgis.gis import GIS, Group, User, Item
 from .models import ArcGISGroup, ArcGISGroupItem
 
+from .common import get_user
+
 # from .users import get_user
 
 log = logging.getLogger(__name__)
@@ -137,7 +139,7 @@ def add_group_member(
     )  # This returns ArcGISGroup, but we need raw for methods
     # resolving to raw Group object
     if isinstance(group, str):
-        raw_group_obj = gis.groups.get(group) or _get_group_by_title(gis, group)
+        raw_group_obj = gis.groups.get(group) or _resolve_group(gis, group)
     else:
         raw_group_obj = group
 
