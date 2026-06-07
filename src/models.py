@@ -167,7 +167,7 @@ class ArcGISGroupItem:
 
 
 @dataclass
-class ArcGISContent:
+class ArcGISItem:
     id: str
     title: str
     type: str
@@ -180,10 +180,10 @@ class ArcGISContent:
     url: str | None
 
     @classmethod
-    def from_arcgis(cls, content_obj: Any) -> "ArcGISContent":
-        """Create ArcGISContent from an arcgis.gis.Item object."""
+    def from_arcgis(cls, item_obj: Any) -> "ArcGISItem":
+        """Create ArcGISItem from an arcgis.gis.Item object."""
 
-        props = getattr(content_obj, "properties", {}) if hasattr(content_obj, "properties") else content_obj
+        props = getattr(item_obj, "properties", {}) if hasattr(item_obj, "properties") else item_obj
 
         return cls(
             id=props.get("id"),
