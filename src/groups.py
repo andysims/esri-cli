@@ -38,11 +38,8 @@ def find_group(
     title: str | None = None,
     owner: str | None = None,
 ) -> list[ArcGISGroup]:
-    """Search for groups by any combination of group_id, title, or owner.
+    """Search for groups..."""
 
-    All provided criteria are AND-ed together. Returns an empty list if no
-    criteria are given or no results are found.
-    """
     query_parts = []
     if group_id:
         query_parts.append(f"id:{group_id}")
@@ -60,7 +57,15 @@ def find_group(
     try:
         raw_groups: list = gis.groups.search(query=query_string)
 
-        groups: list[ArcGISGroup] = [ArcGISGroup.from_arcgis(g) for g in raw_groups]
+        # Filter out None values (defensive)
+        raw_groups = [g for g in raw_groups if g is not None]
+
+        groups: list[ArcGISGroup] = []
+        for g in raw_groups:
+            try:
+                groups.append(ArcGISGroup.from_arcgis(g))
+            except Exception as e:
+                log.warning("Failed to parse group: %s - %s", g, e)
 
         if not groups:
             log.warning("Query returned no results: %s", query_string)

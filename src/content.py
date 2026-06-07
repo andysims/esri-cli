@@ -5,8 +5,21 @@ from arcgis.gis import GIS, Item
 
 from .utils import esri_timestamp_to_str
 from .models import ArcGISItem
+from .groups import _resolve_group
+from .users import get_user
 
-log = logging.GetLogger(__name__)
+log = logging.getLogger(__name__)
+
+
+# ======== Helper ========
+def _resolve_item(gis: GIS, item: str | Item) -> Item:
+    """Internal helper: resolve item ID (str) or Item object to a raw Item."""
+    if isinstance(item, str):
+        raw_item: Item = gis.content.get(item)
+        if not raw_item:
+            raise ValueError(f"Item not found: {item}")
+        return raw_item
+    return item
 
 
 # ======== Search ========
@@ -38,9 +51,7 @@ def find_item(
     try:
         raw_items = gis.content.search(query=query_string)
 
-        items: list[ArcGISItem] = [
-            ArcGISItem.from_arcgis(i) for i in raw_items
-        ]
+        items: list[ArcGISItem] = [ArcGISItem.from_arcgis(i) for i in raw_items]
 
         if not items:
             log.warning("Query returned no results: %s", query_string)
@@ -71,7 +82,7 @@ def item_dependencies(
     item_id: str,
 ) -> dict:
     """Return dependencies for an item (what it depends on).
-    
+
     Uses item_id to ensure accuracy. Returns a dict with the raw dependency info.
     """
     raw_item: Item = gis.content.get(item_id)
@@ -83,7 +94,9 @@ def item_dependencies(
     try:
         deps = raw_item.dependent_upon()
 
-        log.info("Found %d dependencies for item %s", len(deps.get("list", [])), item_id)
+        log.info(
+            "Found %d dependencies for item %s", len(deps.get("list", [])), item_id
+        )
         return deps
 
     except Exception:
@@ -105,15 +118,22 @@ def update_item_owner(
         log.info("Item '%s' is already owned by %s", raw_item.title, new_owner)
         return
 
-    log.info("Transferring ownership of '%s' from %s to %s",
-             raw_item.title, raw_item.owner, new_owner)
+    log.info(
+        "Transferring ownership of '%s' from %s to %s",
+        raw_item.title,
+        raw_item.owner,
+        new_owner,
+    )
 
     try:
         success = raw_item.reassign_to(target_user)
 
         if success:
-            log.info("Successfully transferred ownership of '%s' to %s", 
-                     raw_item.title, new_owner)
+            log.info(
+                "Successfully transferred ownership of '%s' to %s",
+                raw_item.title,
+                new_owner,
+            )
         else:
             raise RuntimeError(f"Failed to reassign ownership of item {raw_item.id}")
 
@@ -129,7 +149,7 @@ def share_item(
     access: str | None = None,
 ) -> None:
     """Share an item with specific groups and/or change its access level.
-    
+
     access can be: 'private', 'org', 'public'
     groups: list of group IDs or titles
     """
@@ -141,11 +161,15 @@ def share_item(
     group_ids = []
     if groups:
         for g in groups:
-            resolved = _resolve_group(gis, g) if hasattr(g, '_resolve_group') else g
-            group_ids.append(resolved.id if hasattr(resolved, 'id') else resolved)
+            resolved = _resolve_group(gis, g) if hasattr(g, "_resolve_group") else g
+            group_ids.append(resolved.id if hasattr(resolved, "id") else resolved)
 
-    log.info("Sharing item '%s' — access=%s, groups=%s", 
-             raw_item.title, access, len(group_ids))
+    log.info(
+        "Sharing item '%s' — access=%s, groups=%s",
+        raw_item.title,
+        access,
+        len(group_ids),
+    )
 
     try:
         result = raw_item.share(groups=group_ids, access=access)
@@ -169,8 +193,12 @@ def unshare_item(
     """Unshare an item (remove sharing from groups and/or org/public)."""
     raw_item = _resolve_item(gis, item)
 
-    log.info("Unsharing item '%s' (groups=%s, unshare_from_org=%s)",
-             raw_item.title, groups, unshare_from_org)
+    log.info(
+        "Unsharing item '%s' (groups=%s, unshare_from_org=%s)",
+        raw_item.title,
+        groups,
+        unshare_from_org,
+    )
 
     try:
         result = raw_item.unshare(groups=groups or [], everyone=unshare_from_org)

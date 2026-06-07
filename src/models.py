@@ -79,22 +79,41 @@ class ArcGISGroup:
     member_count: int = 0
 
     @classmethod
-    def from_arcgis(cls, group_obj) -> "ArcGISGroup":
-        """Create ArcGISGroup from arcgis.gis.Group object safely."""
+    def from_arcgis(cls, group_obj: Any) -> "ArcGISGroup":
+        """Create from arcgis.gis.Group object or dict. Very defensive."""
+        if group_obj is None:
+            raise ValueError("Received None instead of a Group object")
 
-        props = getattr(group_obj, "properties", {}) if hasattr(group_obj, "properties") else group_obj
+        # Handle both dict and arcgis.gis.Group object
+        if isinstance(group_obj, dict):
+            props = group_obj
+        else:
+            props = getattr(group_obj, "properties", None)
+            if props is None:
+                props = group_obj  # fallback if no .properties
 
-        raw_members = group_obj.get_members() if hasattr(group_obj, "get_members") else {}
-        all_users = []
+        if props is None:
+            raise ValueError("Could not extract properties from group object")
+
+        # Members
+        try:
+            raw_members = (
+                group_obj.get_members() if hasattr(group_obj, "get_members") else {}
+            )
+        except Exception:
+            raw_members = {}
+
+        all_users: List[str] = []
         if raw_members.get("owner"):
             all_users.append(raw_members["owner"])
         all_users.extend(raw_members.get("admins", []))
         all_users.extend(raw_members.get("members", []))
+
         member_count = len(set(all_users))
 
+        # Item count (can be expensive + flaky)
         try:
             if hasattr(group_obj, "content"):
-
                 group_items = group_obj.content(max_items=10000)
                 item_count = len(group_items)
             else:
@@ -116,7 +135,7 @@ class ArcGISGroup:
             protected=bool(props.get("protected", False)),
             item_count=item_count,
             members=raw_members,
-            member_count=member_count
+            member_count=member_count,
         )
 
 
@@ -162,7 +181,7 @@ class ArcGISGroupItem:
             protected=bool(props.get("protected", False)),
             tags=props.get("tags", []),
             url=props.get("url"),
-            description=props.get("description")
+            description=props.get("description"),
         )
 
 
@@ -183,7 +202,11 @@ class ArcGISItem:
     def from_arcgis(cls, item_obj: Any) -> "ArcGISItem":
         """Create ArcGISItem from an arcgis.gis.Item object."""
 
-        props = getattr(item_obj, "properties", {}) if hasattr(item_obj, "properties") else item_obj
+        props = (
+            getattr(item_obj, "properties", {})
+            if hasattr(item_obj, "properties")
+            else item_obj
+        )
 
         return cls(
             id=props.get("id"),
@@ -195,6 +218,5 @@ class ArcGISItem:
             modified=esri_timestamp_to_str(props.get("modified")),
             description=props.get("description"),
             tags=props.get("tags", []),
-            url=props.get("url")
+            url=props.get("url"),
         )
-

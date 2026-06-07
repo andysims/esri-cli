@@ -667,6 +667,7 @@ def cmd_group_details(
         f"[bold]ID:[/bold]          {g.id}",
         f"[bold]Title:[/bold]       {g.title}",
         f"[bold]Owner:[/bold]       {g.owner}",
+        f"[bold]Created:[/bold]     {g.created}",
         f"[bold]Access:[/bold]      {g.access}",
         f"[bold]Description:[/bold] {g.description or '—'}",
         f"[bold]Protected:[/bold]   {'Yes' if g.protected else 'No'}",
