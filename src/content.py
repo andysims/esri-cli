@@ -8,6 +8,7 @@ from .models import ArcGISItem
 
 log = logging.GetLogger(__name__)
 
+
 # ======== Search ========
 def find_item(
     gis: GIS,
@@ -87,4 +88,98 @@ def item_dependencies(
 
     except Exception:
         log.exception("Failed to fetch dependencies for item %s", item_id)
+        raise
+
+
+# ======== Sharing and Access ========
+def update_item_owner(
+    gis: GIS,
+    item: str | Item,
+    new_owner: str,
+) -> None:
+    """Reassign ownership of an item to a different user."""
+    raw_item = _resolve_item(gis, item)
+    target_user = get_user(gis, new_owner)
+
+    if raw_item.owner == target_user.username:
+        log.info("Item '%s' is already owned by %s", raw_item.title, new_owner)
+        return
+
+    log.info("Transferring ownership of '%s' from %s to %s",
+             raw_item.title, raw_item.owner, new_owner)
+
+    try:
+        success = raw_item.reassign_to(target_user)
+
+        if success:
+            log.info("Successfully transferred ownership of '%s' to %s", 
+                     raw_item.title, new_owner)
+        else:
+            raise RuntimeError(f"Failed to reassign ownership of item {raw_item.id}")
+
+    except Exception:
+        log.exception("Failed to transfer ownership of item '%s'", raw_item.title)
+        raise
+
+
+def share_item(
+    gis: GIS,
+    item: str | Item,
+    groups: list[str] | None = None,
+    access: str | None = None,
+) -> None:
+    """Share an item with specific groups and/or change its access level.
+    
+    access can be: 'private', 'org', 'public'
+    groups: list of group IDs or titles
+    """
+    raw_item = _resolve_item(gis, item)
+
+    if access and access not in ("private", "org", "public"):
+        raise ValueError("access must be one of: 'private', 'org', 'public'")
+
+    group_ids = []
+    if groups:
+        for g in groups:
+            resolved = _resolve_group(gis, g) if hasattr(g, '_resolve_group') else g
+            group_ids.append(resolved.id if hasattr(resolved, 'id') else resolved)
+
+    log.info("Sharing item '%s' — access=%s, groups=%s", 
+             raw_item.title, access, len(group_ids))
+
+    try:
+        result = raw_item.share(groups=group_ids, access=access)
+
+        if result and result.get("success"):
+            log.info("Successfully shared item '%s'", raw_item.title)
+        else:
+            raise RuntimeError(f"Failed to share item (result: {result})")
+
+    except Exception:
+        log.exception("Failed to share item '%s'", raw_item.title)
+        raise
+
+
+def unshare_item(
+    gis: GIS,
+    item: str | Item,
+    groups: list[str] | None = None,
+    unshare_from_org: bool = False,
+) -> None:
+    """Unshare an item (remove sharing from groups and/or org/public)."""
+    raw_item = _resolve_item(gis, item)
+
+    log.info("Unsharing item '%s' (groups=%s, unshare_from_org=%s)",
+             raw_item.title, groups, unshare_from_org)
+
+    try:
+        result = raw_item.unshare(groups=groups or [], everyone=unshare_from_org)
+
+        if result and result.get("success"):
+            log.info("Successfully unshared item '%s'", raw_item.title)
+        else:
+            raise RuntimeError(f"Failed to unshare item")
+
+    except Exception:
+        log.exception("Failed to unshare item '%s'", raw_item.title)
         raise
