@@ -628,6 +628,7 @@ def cmd_find_group(
     table.add_column("Owner")
     table.add_column("Access")
     table.add_column("Members", justify="right")
+    table.add_column("Items", justify="right")
 
     for g in results:
         table.add_row(
@@ -635,7 +636,8 @@ def cmd_find_group(
             g.title,
             g.owner,
             g.access,
-            str(g.memberCount) if hasattr(g, "memberCount") else "—",
+            str(g.member_count) if hasattr(g, "member_count") else "—",
+            str(g.item_count) if hasattr(g, "item_count") else "—",
         )
 
     console.print(table)

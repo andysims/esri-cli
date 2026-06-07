@@ -61,9 +61,17 @@ def find_group(
         raw_groups = [g for g in raw_groups if g is not None]
 
         groups: list[ArcGISGroup] = []
+
         for g in raw_groups:
             try:
                 groups.append(ArcGISGroup.from_arcgis(g))
+                """ TESTING"""
+                """
+                for k, v in g.items():  # delete
+                    print(k, v)  # delete
+                n = ArcGISGroup.from_arcgis(g)
+                print(n)
+                """
             except Exception as e:
                 log.warning("Failed to parse group: %s - %s", g, e)
 

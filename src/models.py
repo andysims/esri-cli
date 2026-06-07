@@ -75,7 +75,9 @@ class ArcGISGroup:
     isViewOnly: bool
     protected: bool
     item_count: int
-    members: Dict[str, List[str]] = field(default_factory=dict)
+    members: Dict[str, Any] = field(
+        default_factory=dict
+    )  # Changed to Any as get_members combines str and List[str]
     member_count: int = 0
 
     @classmethod
@@ -84,18 +86,17 @@ class ArcGISGroup:
         if group_obj is None:
             raise ValueError("Received None instead of a Group object")
 
-        # Handle both dict and arcgis.gis.Group object
         if isinstance(group_obj, dict):
             props = group_obj
         else:
             props = getattr(group_obj, "properties", None)
             if props is None:
-                props = group_obj  # fallback if no .properties
+                props = group_obj
 
         if props is None:
             raise ValueError("Could not extract properties from group object")
 
-        # Members
+        # Extracts Members from Group Object
         try:
             raw_members = (
                 group_obj.get_members() if hasattr(group_obj, "get_members") else {}
@@ -103,12 +104,21 @@ class ArcGISGroup:
         except Exception:
             raw_members = {}
 
+        # Parse users and calculate distinct headcount
         all_users: List[str] = []
-        if raw_members.get("owner"):
-            all_users.append(raw_members["owner"])
-        all_users.extend(raw_members.get("admins", []))
-        all_users.extend(raw_members.get("members", []))
 
+        # 1. Grab Owner
+        group_owner = raw_members.get("owner") or props.get("owner")
+        if group_owner:
+            all_users.append(group_owner)
+
+        # 2. Grab Admins
+        all_users.extend(raw_members.get("admins", []))
+
+        # 3. FIX: ArcGIS API uses "users", not "members" for regular group members
+        all_users.extend(raw_members.get("users", []))
+
+        # Eliminate duplicates (e.g. if the owner is also listed under admins)
         member_count = len(set(all_users))
 
         # Item count (can be expensive + flaky)
