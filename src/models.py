@@ -80,39 +80,43 @@ class ArcGISGroup:
 
     @classmethod
     def from_arcgis(cls, group_obj) -> "ArcGISGroup":
-        """Create ArcGISGroup from arcgis.gis.Group object."""
-        # getting members
-        raw_members = group_obj.get_members()
-        all_users = (
-            ([raw_members.get("owner")] if raw_members.get("owner") else [])
-            + raw_members.get("admins", [])
-            + raw_members.get("members", [])
-        )
+        """Create ArcGISGroup from arcgis.gis.Group object safely."""
+
+        props = getattr(group_obj, "properties", {}) if hasattr(group_obj, "properties") else group_obj
+
+        raw_members = group_obj.get_members() if hasattr(group_obj, "get_members") else {}
+        all_users = []
+        if raw_members.get("owner"):
+            all_users.append(raw_members["owner"])
+        all_users.extend(raw_members.get("admins", []))
+        all_users.extend(raw_members.get("members", []))
         member_count = len(set(all_users))
 
-        # Safely get item_count
         try:
-            item_count = (
-                len(group_obj.content()) if hasattr(group_obj, "content") else 0
-            )
+            if hasattr(group_obj, "content"):
+
+                group_items = group_obj.content(max_items=10000)
+                item_count = len(group_items)
+            else:
+                item_count = 0
         except Exception:
             item_count = 0
 
         return cls(
-            id=getattr(group_obj, "id", ""),
-            title=getattr(group_obj, "title", ""),
-            owner=getattr(group_obj, "owner", ""),
-            description=getattr(group_obj, "description", None),
-            created=esri_timestamp_to_str(getattr(group_obj, "created", None)),
-            modified=esri_timestamp_to_str(getattr(group_obj, "modified", None)),
-            access=getattr(group_obj, "access", "private"),
-            isInvitationOnly=getattr(group_obj, "isInvitationOnly", False),
-            isReadOnly=getattr(group_obj, "isReadOnly", False),
-            isViewOnly=getattr(group_obj, "isViewOnly", False),
-            protected=getattr(group_obj, "protected", False),
+            id=props.get("id", ""),
+            title=props.get("title", ""),
+            owner=props.get("owner", ""),
+            description=props.get("description"),
+            created=esri_timestamp_to_str(props.get("created")),
+            modified=esri_timestamp_to_str(props.get("modified")),
+            access=props.get("access", "private"),
+            isInvitationOnly=bool(props.get("isInvitationOnly", False)),
+            isReadOnly=bool(props.get("isReadOnly", False)),
+            isViewOnly=bool(props.get("isViewOnly", False)),
+            protected=bool(props.get("protected", False)),
             item_count=item_count,
             members=raw_members,
-            member_count=member_count,
+            member_count=member_count
         )
 
 
@@ -123,8 +127,8 @@ class ArcGISGroupItem:
     type: str
     owner: str
     access: str
-    created: str | None
-    modified: str | None
+    created: Optional[str]
+    modified: Optional[str]
     size_bytes: int
     numViews: int
     protected: bool
@@ -134,24 +138,63 @@ class ArcGISGroupItem:
 
     @property
     def size_mb(self) -> float:
-        """Helper property to quickly read the item size in Megabytes."""
+        """Helper to read item in MB."""
         return round(self.size_bytes / (1024 * 1024), 2)
 
     @classmethod
     def from_arcgis_item(cls, item) -> "ArcGISGroupItem":
         """Instantiates from an ArcGIS API for Python Item object."""
+        props = getattr(item, "properties", {}) if hasattr(item, "properties") else item
+
+        raw_size = props.get("size", 0)
+        size_int = int(raw_size) if raw_size is not None else 0
+
         return cls(
-            id=getattr(item, "id", ""),
-            title=getattr(item, "title", ""),
-            type=getattr(item, "type", ""),
-            owner=getattr(item, "owner", ""),
-            access=getattr(item, "access", "private"),
-            created=esri_timestamp_to_str(getattr(item, "created", None)),
-            modified=esri_timestamp_to_str(getattr(item, "modified", None)),
-            size_bytes=getattr(item, "size", 0),
-            numViews=getattr(item, "numViews", 0),
-            protected=getattr(item, "protected", False),
-            tags=getattr(item, "tags", []),
-            url=getattr(item, "url", None),
-            description=getattr(item, "description", None),
+            id=props.get("id", ""),
+            title=props.get("title", ""),
+            type=props.get("type", ""),
+            owner=props.get("owner", ""),
+            access=props.get("access", "private"),
+            created=esri_timestamp_to_str(props.get("created")),
+            modified=esri_timestamp_to_str(props.get("modified")),
+            size_bytes=size_int,
+            numViews=int(props.get("numViews", 0)),
+            protected=bool(props.get("protected", False)),
+            tags=props.get("tags", []),
+            url=props.get("url"),
+            description=props.get("description")
         )
+
+
+@dataclass
+class ArcGISContent:
+    id: str
+    title: str
+    type: str
+    owner: str
+    access: str
+    created: str | None
+    modified: str | None
+    description: str | None
+    tags: list[str] | None
+    url: str | None
+
+    @classmethod
+    def from_arcgis(cls, content_obj: Any) -> "ArcGISContent":
+        """Create ArcGISContent from an arcgis.gis.Item object."""
+
+        props = getattr(content_obj, "properties", {}) if hasattr(content_obj, "properties") else content_obj
+
+        return cls(
+            id=props.get("id"),
+            title=props.get("title", "Untitled"),
+            type=props.get("type", "Unknown"),
+            owner=props.get("owner"),
+            access=props.get("access", "private"),
+            created=esri_timestamp_to_str(props.get("created")),
+            modified=esri_timestamp_to_str(props.get("modified")),
+            description=props.get("description"),
+            tags=props.get("tags", []),
+            url=props.get("url")
+        )
+
