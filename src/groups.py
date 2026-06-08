@@ -1,8 +1,7 @@
 import logging
-
+from typing import List
 from arcgis.gis import GIS, Group, User, Item
-from .models import ArcGISGroup, ArcGISGroupItem
-
+from .models import ArcGISGroup, ArcGISGroupItem, ArcGISGroupMember
 from .common import get_user
 
 # from .users import get_user
@@ -105,7 +104,7 @@ def group_details(gis: GIS, group: str | ArcGISGroup | None = None) -> ArcGISGro
     if not group:
         raise ValueError("Group ID or title cannot be empty")
 
-    # Try exact ID lookup first (most common + efficient)
+    # Attempts exact ID lookup first
     raw_group = gis.groups.get(group)
 
     if not raw_group:
@@ -121,6 +120,44 @@ def group_details(gis: GIS, group: str | ArcGISGroup | None = None) -> ArcGISGro
         raw_group = results[0]
 
     return ArcGISGroup.from_arcgis(raw_group)
+
+
+def get_group_members(gis: GIS, group: str | ArcGISGroup) -> List[ArcGISGroupMember]:
+    """
+    Retrieves all members of a given group and returns them as a list
+    of ArcGISGroupMember dataclasses, complete with their group role.
+    """
+
+    resolved_group = group_details(gis, group)
+
+    member_dict = resolved_group.members
+
+    role_mapping = {
+        "owner": [member_dict.get("owner")] if member_dict.get("owner") else [],
+        "admin": member_dict.get("admins", []),
+        "user": member_dict.get("users", []),
+    }
+
+    group_members_list: List[ArcGISGroupMember] = []
+
+    for group_role, usernames in role_mapping.items():
+        for username in usernames:
+            try:
+                # Fetches full user properties
+                raw_user = gis.users.get(username)
+
+                if raw_user:
+                    # Convert raw User object properties to dataclass
+                    member_dataclass = ArcGISGroupMember.from_user_and_role(
+                        user_obj=raw_user.properties, group_role=group_role
+                    )
+                    group_members_list.append(member_dataclass)
+            except Exception as e:
+                log.warning(
+                    f"Warning: Could not fetch details for group user '{username}': {e}"
+                )
+
+    return group_members_list
 
 
 # ======== Membership ========

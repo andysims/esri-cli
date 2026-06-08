@@ -151,6 +151,40 @@ class ArcGISGroup:
 
 
 @dataclass
+class ArcGISGroupMember(ArcGISUser):
+    group_role: str  # Options: 'owner', 'admin', or 'user'
+
+    @classmethod
+    def from_user_and_role(cls, user_obj: Any, group_role: str) -> "ArcGISGroupMember":
+        """
+        Creates an ArcGISGroupMember by parsing the base user object
+        and injecting their specific group role.
+        """
+        # Parse base user details
+        base_user = cls.from_arcgis(user_obj)
+
+        return cls(
+            group_role=group_role,
+            firstName=base_user.firstName,
+            lastName=base_user.lastName,
+            fullName=base_user.fullName,
+            username=base_user.username,
+            email=base_user.email,
+            idpUsername=base_user.idpUsername,
+            created=base_user.created,
+            lastLogin=base_user.lastLogin,
+            daysSinceLastLogin=base_user.daysSinceLastLogin,
+            role=base_user.role,
+            userLicenseType=base_user.userLicenseType,
+            mfaEnabled=base_user.mfaEnabled,
+            access=base_user.access,
+            provider=base_user.provider,
+            disabled=base_user.disabled,
+            groups=base_user.groups,
+        )
+
+
+@dataclass
 class ArcGISGroupItem:
     id: str
     title: str
