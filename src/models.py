@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from .utils import esri_timestamp_to_str
 import datetime as dt
 from typing import Dict, Any, List, Optional
+from arcgis.gis import Item
 
 
 @dataclass
@@ -171,27 +172,25 @@ class ArcGISGroupItem:
         return round(self.size_bytes / (1024 * 1024), 2)
 
     @classmethod
-    def from_arcgis_item(cls, item) -> "ArcGISGroupItem":
-        """Instantiates from an ArcGIS API for Python Item object."""
-        props = getattr(item, "properties", {}) if hasattr(item, "properties") else item
-
-        raw_size = props.get("size", 0)
+    def from_arcgis_item(cls, item: Item) -> "ArcGISGroupItem":
+        """Instantiates directly from an ArcGIS API for Python Item object attributes."""
+        raw_size = getattr(item, "size", 0)
         size_int = int(raw_size) if raw_size is not None else 0
 
         return cls(
-            id=props.get("id", ""),
-            title=props.get("title", ""),
-            type=props.get("type", ""),
-            owner=props.get("owner", ""),
-            access=props.get("access", "private"),
-            created=esri_timestamp_to_str(props.get("created")),
-            modified=esri_timestamp_to_str(props.get("modified")),
+            id=getattr(item, "id", ""),
+            title=getattr(item, "title", ""),
+            type=getattr(item, "type", ""),
+            owner=getattr(item, "owner", ""),
+            access=getattr(item, "access", "private"),
+            created=esri_timestamp_to_str(getattr(item, "created", None)),
+            modified=esri_timestamp_to_str(getattr(item, "modified", None)),
             size_bytes=size_int,
-            numViews=int(props.get("numViews", 0)),
-            protected=bool(props.get("protected", False)),
-            tags=props.get("tags", []),
-            url=props.get("url"),
-            description=props.get("description"),
+            numViews=int(getattr(item, "numViews", 0)),
+            protected=bool(getattr(item, "protected", False)),
+            tags=getattr(item, "tags", []),
+            url=getattr(item, "url", None),
+            description=getattr(item, "description", None),
         )
 
 

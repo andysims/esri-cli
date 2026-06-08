@@ -978,6 +978,7 @@ def cmd_group_content(
     table.add_column("Title", style="cyan")
     table.add_column("Type")
     table.add_column("Owner")
+    table.add_column("Created")
 
     for item in items:
         table.add_row(
@@ -985,6 +986,7 @@ def cmd_group_content(
             item.title,
             item.type,
             item.owner,
+            item.created,
         )
 
     console.print(table)

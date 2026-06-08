@@ -3,7 +3,7 @@ This is a Python tool designed to centralize ArcGIS administration tasks (Conten
 
 ## Current Status
 **Under Development.** This is somewhat of a refactoring project. Most functionality is still being ported over from PowerShell scripts.
- * **Functional:** main.py (main CLI entry point), Users, and Groups (still testing).
+ * **Functional:** main.py (main CLI entry point), Users, and Groups.
  * **Next Up:** Auditing, Utils (for exporting reports to CSV), and Content.
 
 ## Planned Features

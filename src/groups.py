@@ -213,7 +213,15 @@ def update_member_role(
     )
 
     try:
-        success = raw_group_obj.update_member(username=username, role=role)
+        if role == "owner":
+            success = raw_group_obj.reassign_to(target_owner=username)
+
+        elif role == "admin":
+            success = raw_group_obj.update_users_roles(managers=[username])
+
+        elif role == "member":
+            success = raw_group_obj.update_users_roles(users=[username])
+
         if success:
             log.info(
                 "Successfully updated %s role to '%s' in group '%s'",
@@ -223,6 +231,7 @@ def update_member_role(
             )
         else:
             raise RuntimeError(f"Failed to update role for {username}")
+
     except Exception:
         log.exception(
             "Failed to update role for %s in group '%s'", username, raw_group_obj.title
@@ -428,18 +437,12 @@ def group_content(
     gis: GIS,
     group: str,
 ) -> list[ArcGISGroupItem]:
-    """Return all items (content) belonging to a group.
-
-    Accepts either a group ID or group title (name).
-    Returns an empty list if the group has no content.
-    """
-
+    """Return all items (content) belonging to a group."""
     raw_group = _resolve_group(gis, group)
-
     log.info("Fetching content for group '%s' (ID: %s)", raw_group.title, raw_group.id)
 
     try:
-        # Get all items in the group
+        # group.content() -> list of arcgis.gis.Item objects
         raw_items = raw_group.content()
 
         items: list[ArcGISGroupItem] = [
@@ -452,7 +455,6 @@ def group_content(
             log.info("Found %d item(s) in group '%s'", len(items), raw_group.title)
 
         return items
-
     except Exception:
         log.exception("Error fetching content for group '%s'", raw_group.title)
         raise
@@ -463,10 +465,16 @@ def add_item(
     group: str,
     item: str,
 ) -> None:
-    """Share an item with a group (add item to group).
+    """Shares an item with an ArcGIS group
 
-    group: Group ID or title (resolved automatically)
-    item: Item ID (str) or Item object
+    Args:
+        gis: Authenticated GIS connection instance.
+        group: Target group ID or title string.
+        item: Item ID string or instantiated Item object.
+
+    Raises:
+        ValueError: If the item cannot be found on the portal.
+        RuntimeError: If the backend fails to share due to permission or state issues.
     """
     raw_group = _resolve_group(gis, group)
 
@@ -481,16 +489,20 @@ def add_item(
     log.info("Adding item '%s' to group '%s'", raw_item.title, raw_group.title)
 
     try:
-        result = raw_item.share(groups=[raw_group.id])
+        success = raw_item.sharing.groups.add(raw_group)
 
-        if result and result.get("success"):
+        if success:
             log.info(
                 "Successfully added item '%s' to group '%s'",
                 raw_item.title,
                 raw_group.title,
             )
         else:
-            raise RuntimeError(f"Failed to share item with group (result: {result})")
+            raise RuntimeError(
+                f"ArcGIS REST backend refused to share the item. "
+                f"Verify that your account has ownership/admin rights over the item, "
+                f"or check if the item is already shared with group ID: {raw_group.id}"
+            )
 
     except Exception:
         log.exception(
@@ -504,7 +516,17 @@ def remove_item(
     group: str,
     item: str,
 ) -> None:
-    """Remove an item from a group (unshare from the group)."""
+    """Removes (unshares) an item from an ArcGIS group.
+
+    Args:
+        gis: Authenticated GIS connection instance.
+        group: Target group ID or title string.
+        item: Item ID string or instantiated Item object.
+
+    Raises:
+        ValueError: If the item cannot be found on the portal.
+        RuntimeError: If the backend fails to unshare due to permission or state issues.
+    """
     raw_group = _resolve_group(gis, group)
 
     # Resolve item
@@ -518,17 +540,20 @@ def remove_item(
     log.info("Removing item '%s' from group '%s'", raw_item.title, raw_group.title)
 
     try:
-        # Unshare from specific group
-        result = raw_item.share(groups=[], clear_groups=False)
+        success = raw_item.sharing.groups.remove(raw_group)
 
-        if result and result.get("success"):
+        if success:
             log.info(
                 "Successfully removed item '%s' from group '%s'",
                 raw_item.title,
                 raw_group.title,
             )
         else:
-            raise RuntimeError(f"Failed to remove item from group")
+            raise RuntimeError(
+                f"ArcGIS REST backend refused to unshare item. "
+                f"Verify your account has administrative rights or that "
+                f"the item is currently shared with group ID: {raw_group.id}"
+            )
 
     except Exception:
         log.exception(
@@ -537,27 +562,3 @@ def remove_item(
             raw_group.title,
         )
         raise
-
-
-"""
-# Search
-- find_group (by name, owner, id): DONE
-- group_details: DONE
-
-# Lifecycle
-- create_group: DONE
-- delete_group: DONE
-- update_group: DONE
-
-# Membership
-- add_group_member: DONE
-- remove_group_member: DONE
-- update_member_role (owner, admin, member): DONE
-- transfer_group_ownership: DONE (changes ownership of user's groups)
-- transfer_user_groups: DONE (transfers groups from one user to another)
-
-# Content
-- group_content: DONE
-- add_item_to_group: DONE
-- remove_item_from_group: DONE
-"""
