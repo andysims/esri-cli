@@ -29,9 +29,12 @@ class ArcGISUser:
         last_login_ms = user_obj.get("lastLogin", -1)
         days_since = None
 
-        if last_login_ms and last_login_ms != -1:
-            login_date = dt.datetime.fromtimestamp(last_login_ms / 1000)
-            days_since = (dt.datetime.now() - login_date).days
+        if last_login_ms not in (None, -1, 0):
+            try:
+                login_date = dt.datetime.fromtimestamp(last_login_ms / 1000.0)
+                days_since = (dt.datetime.now() - login_date).days
+            except (ValueError, TypeError, OverflowError):
+                days_since = None
 
         return cls(
             firstName=user_obj.get("firstName", ""),

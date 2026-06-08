@@ -15,6 +15,9 @@ def esri_timestamp_to_str(esri_time: int | float) -> str | None:
 
     Returns 'MM-DD-YYYY hh:mm:ss AM/PM' or None if an error occurs.
     """
+    if esri_time in (-1, 0, None):
+        return None
+
     try:
         # Convert milliseconds to seconds and create a timezone-aware UTC datetime
         dt_utc = datetime.fromtimestamp(esri_time / 1000.0, tz=timezone.utc)
