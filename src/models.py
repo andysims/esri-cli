@@ -244,22 +244,24 @@ class ArcGISItem:
     @classmethod
     def from_arcgis(cls, item_obj: Any) -> "ArcGISItem":
         """Create ArcGISItem from an arcgis.gis.Item object."""
+        props = getattr(item_obj, "properties", None) or {}
+        if not props:
+            props = item_obj
 
-        props = (
-            getattr(item_obj, "properties", {})
-            if hasattr(item_obj, "properties")
-            else item_obj
-        )
+        item_id = props.get("id") or ""
+
+        if not item_id.strip():
+            raise ValueError("Item record is missing a valid item ID identifier.")
 
         return cls(
-            id=props.get("id"),
+            id=item_id,
             title=props.get("title", "Untitled"),
             type=props.get("type", "Unknown"),
-            owner=props.get("owner"),
+            owner=props.get("owner", ""),
             access=props.get("access", "private"),
             created=esri_timestamp_to_str(props.get("created")),
             modified=esri_timestamp_to_str(props.get("modified")),
-            description=props.get("description"),
-            tags=props.get("tags", []),
-            url=props.get("url"),
+            description=props.get("description", ""),
+            tags=props.get("tags") or [],
+            url=props.get("url", ""),
         )

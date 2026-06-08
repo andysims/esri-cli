@@ -19,6 +19,7 @@ load_config() + gis_conn() from auth.py.
 import logging
 import sys
 from typing import Optional
+from collections import Counter
 
 import typer
 from arcgis.gis import GIS
@@ -1112,7 +1113,11 @@ def cmd_inactive_users(
         never_logged_in_count = sum(
             1 for u in users if getattr(u, "daysSinceLastLogin") is None
         )
+
         inactive_count = total_count - never_logged_in_count
+
+        never_logged_in_pct = round((never_logged_in_count / total_count) * 100, 1)
+        inactive_days_pct = round((inactive_count / total_count) * 100, 1)
 
         console.print(
             f"\n[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]"
@@ -1121,10 +1126,10 @@ def cmd_inactive_users(
             f" • Total inactive users:       [bold yellow]{total_count}[/bold yellow]"
         )
         console.print(
-            f" • Never logged in:            [bold cyan]{never_logged_in_count}[/bold cyan]"
+            f" • Never logged in:            [bold cyan]{never_logged_in_count} ({never_logged_in_pct}%)[/bold cyan]"
         )
         console.print(
-            f" • Inactive for {days}+ days:    [bold magenta]{inactive_count}[/bold magenta]\n"
+            f" • Inactive for {days}+ days:    [bold magenta]{inactive_count} ({inactive_days_pct}%)[/bold magenta]\n"
         )
 
         if export_csv:
@@ -1132,6 +1137,173 @@ def cmd_inactive_users(
             typer.echo(f"Data exported to {export_csv}")
 
     except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@audit_app.command("public-items")
+def cmd_public_items(
+    item_types: Optional[list[str]] = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Specific item types to filter by. Can be passed multiple times.",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Filename to export results to CSV"
+    ),
+):
+    """Audits environment for content shared publicly.
+
+    Examples:
+      esri-cli audit public-items
+      esri-cli audit public-items --type "Web Map" --type "Feature Layer"
+    """
+    gis = _connect(env)
+    try:
+        # 1. Fetch the public items list using your backend query logic
+        pub_items = audit_ops.public_items(gis, item_types=item_types)
+        total_count = len(pub_items)
+
+        # 2. Early return if nothing is found to prevent empty tables
+        if total_count == 0:
+            console.print(
+                f"\n[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]"
+            )
+            console.print(
+                "[yellow]ℹ[/yellow] No public items were found matching your criteria.\n"
+            )
+            return
+
+        # 3. Generate the distribution aggregations
+        type_counts = Counter(item.type for item in pub_items)
+        owner_counts = Counter(item.owner for item in pub_items)
+
+        # 4. Construct the Item Type breakdown table
+        type_table = Table(
+            title="Public Items by Content Type", title_justify="left", show_footer=True
+        )
+        type_table.add_column("Item Type", footer="Total Unique Types")
+        type_table.add_column(
+            "Count", justify="right", footer=str(total_count), style="cyan"
+        )
+
+        # Sort items by highest count first
+        for item_type, count in type_counts.most_common():
+            type_table.add_row(item_type, str(count))
+
+        # 5. Construct the Owner breakdown table
+        owner_table = Table(
+            title="Public Items by Content Owner",
+            title_justify="left",
+            show_footer=True,
+        )
+        owner_table.add_column("Owner Username", footer="Total Public Items")
+        owner_table.add_column(
+            "Count", justify="right", footer=str(total_count), style="yellow"
+        )
+
+        for owner, count in owner_counts.most_common():
+            owner_table.add_row(owner, str(count))
+
+        # 6. Render the dashboard layout to the terminal console
+        console.print(
+            f"\n[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]\n"
+        )
+        console.print(type_table)
+        console.print("")  # Spacer
+        console.print(owner_table)
+        console.print("")  # Spacer
+
+        # 7. Handle data export requests
+        if export_csv:
+            utils_ops.export_to_csv(pub_items, export_csv)
+            console.print(
+                f"[green]✓[/green] Complete item ledger successfully exported to [bold]{export_csv}[/bold]\n"
+            )
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@audit_app.command("broken-deps")
+def cmd_broken_dependencies(
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Filename to export broken items results to CSV"
+    ),
+):
+    """Audits environment for items with broken layers, deleted sources, or dead URLs.
+
+    Examples:
+      esri-cli audit broken-deps
+      esri-cli audit broken-deps --export-csv broken_report.csv
+    """
+    gis = _connect(env)
+    try:
+        console.print(
+            f"\n[bold yellow]⏳[/bold yellow] Running diagnostics on environment: [bold]{env}[/bold]..."
+        )
+        broken_items = audit_ops.broken_dependencies(gis)
+        total_count = len(broken_items)
+
+        if total_count == 0:
+            console.print(
+                f"[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]"
+            )
+            console.print(
+                "[green]✓[/green] Clean bill of health! No broken dependencies found.\n"
+            )
+            return
+
+        type_counts = Counter(item.type for item in broken_items)
+        owner_counts = Counter(item.owner for item in broken_items)
+
+        type_table = Table(
+            title="Broken Dependencies by Content Type",
+            title_style="bold red",
+            title_justify="left",
+            show_footer=True,
+        )
+        type_table.add_column("Item Type", footer="Total Broken Items")
+        type_table.add_column(
+            "Count", justify="right", footer=str(total_count), style="red"
+        )
+
+        for item_type, count in type_counts.most_common():
+            type_table.add_row(item_type, str(count))
+
+        owner_table = Table(
+            title="Broken Dependencies by Content Owner",
+            title_style="bold magenta",
+            title_justify="left",
+            show_footer=True,
+        )
+        owner_table.add_column("Owner Username", footer="Total Affected Assets")
+        owner_table.add_column(
+            "Count", justify="right", footer=str(total_count), style="magenta"
+        )
+
+        for owner, count in owner_counts.most_common():
+            owner_table.add_row(owner, str(count))
+
+        console.print(
+            f"[red]❌[/red] Audit complete! Found [bold red]{total_count}[/bold red] broken items.\n"
+        )
+        console.print(type_table)
+        console.print("")  # Spacer
+        console.print(owner_table)
+        console.print("")  # Spacer
+
+        if export_csv:
+            utils_ops.export_to_csv(broken_items, export_csv)
+            console.print(
+                f"[green]✓[/green] Broken dependency ledger successfully exported to [bold]{export_csv}[/bold]\n"
+            )
+
+    except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
