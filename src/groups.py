@@ -123,13 +123,8 @@ def group_details(gis: GIS, group: str | ArcGISGroup | None = None) -> ArcGISGro
 
 
 def get_group_members(gis: GIS, group: str | ArcGISGroup) -> List[ArcGISGroupMember]:
-    """
-    Retrieves all members of a given group and returns them as a list
-    of ArcGISGroupMember dataclasses, complete with their group role.
-    """
-
+    """Retrieves all members of a given group and returns them as a list of ArcGISGroupMember dataclasses."""
     resolved_group = group_details(gis, group)
-
     member_dict = resolved_group.members
 
     role_mapping = {
@@ -143,13 +138,10 @@ def get_group_members(gis: GIS, group: str | ArcGISGroup) -> List[ArcGISGroupMem
     for group_role, usernames in role_mapping.items():
         for username in usernames:
             try:
-                # Fetches full user properties
                 raw_user = gis.users.get(username)
-
                 if raw_user:
-                    # Convert raw User object properties to dataclass
                     member_dataclass = ArcGISGroupMember.from_user_and_role(
-                        user_obj=raw_user.properties, group_role=group_role
+                        user_obj=raw_user, group_role=group_role
                     )
                     group_members_list.append(member_dataclass)
             except Exception as e:

@@ -156,12 +156,9 @@ class ArcGISGroupMember(ArcGISUser):
 
     @classmethod
     def from_user_and_role(cls, user_obj: Any, group_role: str) -> "ArcGISGroupMember":
-        """
-        Creates an ArcGISGroupMember by parsing the base user object
-        and injecting their specific group role.
-        """
-        # Parse base user details
-        base_user = cls.from_arcgis(user_obj)
+        """Creates an ArcGISGroupMember by parsing the base user object."""
+
+        base_user = ArcGISUser.from_arcgis(user_obj)
 
         return cls(
             group_role=group_role,
