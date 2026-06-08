@@ -40,9 +40,7 @@ class ArcGISUser:
             firstName=user_obj.get("firstName", ""),
             lastName=user_obj.get("lastName", ""),
             fullName=user_obj.get("fullName", ""),
-            username=user_obj.get(
-                "username", ""
-            ),  # Username is mandatory and always present
+            username=user_obj.get("username", ""),
             email=user_obj.get("email", ""),
             idpUsername=user_obj.get("idpUsername", ""),
             created=esri_timestamp_to_str(user_obj.get("created")),
@@ -79,9 +77,7 @@ class ArcGISGroup:
     isViewOnly: bool
     protected: bool
     item_count: int
-    members: Dict[str, Any] = field(
-        default_factory=dict
-    )  # Changed to Any as get_members combines str and List[str]
+    members: Dict[str, Any] = field(default_factory=dict)
     member_count: int = 0
 
     @classmethod
@@ -100,7 +96,6 @@ class ArcGISGroup:
         if props is None:
             raise ValueError("Could not extract properties from group object")
 
-        # Extracts Members from Group Object
         try:
             raw_members = (
                 group_obj.get_members() if hasattr(group_obj, "get_members") else {}
@@ -108,7 +103,6 @@ class ArcGISGroup:
         except Exception:
             raw_members = {}
 
-        # Parse users and calculate distinct headcount
         all_users: List[str] = []
 
         # 1. Grab Owner
@@ -116,16 +110,12 @@ class ArcGISGroup:
         if group_owner:
             all_users.append(group_owner)
 
-        # 2. Grab Admins
         all_users.extend(raw_members.get("admins", []))
 
-        # 3. FIX: ArcGIS API uses "users", not "members" for regular group members
         all_users.extend(raw_members.get("users", []))
 
-        # Eliminate duplicates (e.g. if the owner is also listed under admins)
         member_count = len(set(all_users))
 
-        # Item count (can be expensive + flaky)
         try:
             if hasattr(group_obj, "content"):
                 group_items = group_obj.content(max_items=10000)
