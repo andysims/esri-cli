@@ -1,6 +1,10 @@
 # src/utils.py
 from datetime import datetime, timezone
 import logging
+import csv
+from dataclasses import asdict, is_dataclass
+from pathlib import Path
+from typing import List, Any, Union
 
 log = logging.getLogger(__name__)
 
@@ -26,3 +30,46 @@ def get_output_file_timestamp() -> str:
     """Returns the current date formatted as 'YYYYMMDD' for naming files."""
     # Uses local time by default
     return datetime.now().strftime("%Y%m%d")
+
+
+
+
+def export_to_csv(data: Union[Any, List[Any]], filename_prefix: str):
+    """
+    Exports a single model or list of models to a CSV in the user's 
+    Downloads folder. Automatically sorts by 'created' date descending 
+    if the field exists.
+    """
+    if not data:
+        print("No data to export.")
+        return
+
+    # Normalize
+    if not isinstance(data, list):
+        data = [data]
+
+    def get_sort_key(item):
+        val = getattr(item, 'created', None)
+        if not val or not isinstance(val, str):
+            return datetime.min
+        try:
+            # Handles: MM/DD/YYYY HH:MM AM/PM
+            return datetime.strptime(val, "%m/%d/%Y %I:%M %p")
+        except ValueError:
+            return datetime.min
+
+    data.sort(key=get_sort_key, reverse=True)
+
+    downloads_path = Path.home() / "Downloads"
+    timestamp = datetime.now().strftime("%Y%m%d")
+    file_path = downloads_path / f"{filename_prefix}_{timestamp}.csv"
+
+    dict_data = [asdict(item) if is_dataclass(item) else item for item in data]
+
+    with open(file_path, mode='w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=dict_data[0].keys())
+        writer.writeheader()
+        writer.writerows(dict_data)
+
+    print(f"Successfully exported {len(data)} record(s) to: {file_path}")
+
