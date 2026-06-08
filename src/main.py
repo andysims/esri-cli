@@ -29,6 +29,7 @@ from rich.table import Table
 from .auth import load_config, gis_conn
 from . import users as user_ops
 from . import groups as group_ops
+from . import audit as audit_ops
 from . import utils as utils_ops
 
 # ---------------------------------------------------------------------------
@@ -62,9 +63,11 @@ app = typer.Typer(
 
 user_app = typer.Typer(help="User management commands.", no_args_is_help=True)
 group_app = typer.Typer(help="Group management commands.", no_args_is_help=True)
+audit_app = typer.Typer(help="Audit commands", no_args_is_help=True)
 
 app.add_typer(user_app, name="user")
 app.add_typer(group_app, name="group")
+app.add_typer(audit_app, name="audit")
 
 # content_app = typer.Typer(help="Content management commands.")
 # app.add_typer(content_app, name="content")
@@ -1082,6 +1085,52 @@ def cmd_remove_item(
         console.print(
             f"[green]✓[/green] Item [dim]{item_id}[/dim] removed from group [bold]{group}[/bold]."
         )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+# ===========================================================================
+# AUDIT commands
+# ===========================================================================
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+@audit_app.command("inactive")
+def cmd_inactive_users(
+    days: int = typer.Option(90, "--days", "-d", help="Days inactive"),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Export to CSV"
+    ),
+):
+    """Audits environment for users that have not logged in X amount of days."""
+    gis = _connect(env)
+    try:
+        users = audit_ops.inactive_users(gis, days)
+        total_count = len(users)
+        never_logged_in_count = sum(
+            1 for u in users if getattr(u, "daysSinceLastLogin") is None
+        )
+        inactive_count = total_count - never_logged_in_count
+
+        console.print(
+            f"\n[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]"
+        )
+        console.print(
+            f" • Total inactive users:       [bold yellow]{total_count}[/bold yellow]"
+        )
+        console.print(
+            f" • Never logged in:            [bold cyan]{never_logged_in_count}[/bold cyan]"
+        )
+        console.print(
+            f" • Inactive for {days}+ days:    [bold magenta]{inactive_count}[/bold magenta]\n"
+        )
+
+        if export_csv:
+            utils_ops.export_to_csv(users, export_csv)
+            typer.echo(f"Data exported to {export_csv}")
+
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)

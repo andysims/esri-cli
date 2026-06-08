@@ -25,17 +25,31 @@ def total_users(gis) -> int:
 
 def inactive_users(gis: GIS, days: int = 90) -> list[ArcGISUser]:
     """Return users who have never logged in or haven't logged in within N days."""
+
+    # 1. Establish millisecond cutoff timestamp matching Esri's database format
     cutoff_date = dt.datetime.now() - dt.timedelta(days=days)
     cutoff_timestamp_ms = int(cutoff_date.timestamp() * 1000)
 
+    # 2. Grab your exact total user count dynamically
     max_users = total_users(gis)
+
+    # 3. Pull the precise list using standard search
     all_users = gis.users.search(max_users=max_users)
 
-    return [
-        ArcGISUser.from_arcgis(u)
-        for u in all_users
-        if u.get("lastLogin", -1) == -1 or u.get("lastLogin", 0) < cutoff_timestamp_ms
-    ]
+    inactive_list = []
+
+    for u in all_users:
+        last_login = getattr(u, "lastLogin", -1)
+
+        # User has never logged in
+        if last_login is None or last_login == -1:
+            inactive_list.append(ArcGISUser.from_arcgis(u))
+
+        # User logged in, but the stamp is older than cutoff
+        elif last_login < cutoff_timestamp_ms:
+            inactive_list.append(ArcGISUser.from_arcgis(u))
+
+    return inactive_list
 
 
 def sharing_audit(gis: GIS, username: str | None = "") -> dict[str, int] | None:
