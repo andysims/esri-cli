@@ -1162,11 +1162,9 @@ def cmd_public_items(
     """
     gis = _connect(env)
     try:
-        # 1. Fetch the public items list using your backend query logic
         pub_items = audit_ops.public_items(gis, item_types=item_types)
         total_count = len(pub_items)
 
-        # 2. Early return if nothing is found to prevent empty tables
         if total_count == 0:
             console.print(
                 f"\n[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]"
@@ -1176,11 +1174,9 @@ def cmd_public_items(
             )
             return
 
-        # 3. Generate the distribution aggregations
         type_counts = Counter(item.type for item in pub_items)
         owner_counts = Counter(item.owner for item in pub_items)
 
-        # 4. Construct the Item Type breakdown table
         type_table = Table(
             title="Public Items by Content Type", title_justify="left", show_footer=True
         )
@@ -1207,7 +1203,6 @@ def cmd_public_items(
         for owner, count in owner_counts.most_common():
             owner_table.add_row(owner, str(count))
 
-        # 6. Render the dashboard layout to the terminal console
         console.print(
             f"\n[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]\n"
         )
@@ -1216,7 +1211,6 @@ def cmd_public_items(
         console.print(owner_table)
         console.print("")  # Spacer
 
-        # 7. Handle data export requests
         if export_csv:
             utils_ops.export_to_csv(pub_items, export_csv)
             console.print(
@@ -1243,9 +1237,7 @@ def cmd_broken_dependencies(
     """
     gis = _connect(env)
     try:
-        console.print(
-            f"\n[bold yellow]⏳[/bold yellow] Running diagnostics on environment: [bold]{env}[/bold]..."
-        )
+        console.print(f"\nRunning diagnostics on environment: [bold]{env}[/bold]...")
         broken_items = audit_ops.broken_dependencies(gis)
         total_count = len(broken_items)
 
@@ -1290,7 +1282,7 @@ def cmd_broken_dependencies(
             owner_table.add_row(owner, str(count))
 
         console.print(
-            f"[red]❌[/red] Audit complete! Found [bold red]{total_count}[/bold red] broken items.\n"
+            f"Audit complete! Found [bold red]{total_count}[/bold red] broken items.\n"
         )
         console.print(type_table)
         console.print("")  # Spacer
