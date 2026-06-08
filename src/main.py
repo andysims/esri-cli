@@ -29,6 +29,7 @@ from rich.table import Table
 from .auth import load_config, gis_conn
 from . import users as user_ops
 from . import groups as group_ops
+from . import utils as utils_ops
 
 # ---------------------------------------------------------------------------
 # Logging — INFO goes to file, WARNING+ to stderr so Rich owns stdout cleanly.
@@ -683,6 +684,53 @@ def cmd_group_details(
     )
 
 
+@group_app.command("members")
+def cmd_group_members(
+    group: str = typer.Argument(..., help="Group ID or title."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Filename to export results to CSV"
+    ),
+):
+    """Show full members list for a single group."""
+    gis = _connect(env)
+
+    try:
+        g = group_ops._resolve_group(gis, group)
+        members = group_ops.get_group_members(gis, g.id)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    lines = [
+        f"[bold]ID:[/bold] {g.id}",
+        f"[bold]Owner:[/bold] {g.owner}",
+        f"[bold]Protected:[/bold] {'Yes' if getattr(g, 'protected', False) else 'No'}",
+        f"[bold]Invite Only:[/bold] {'Yes' if getattr(g, 'isInvitationOnly', False) else 'No'}",
+    ]
+    console.print(
+        Panel("\n".join(lines), title=f"[cyan]Group: {g.title}[/cyan]", expand=False)
+    )
+    console.print()
+
+    # Create a structured table to show the member list cleanly
+    table = Table(title="Group Members Directory", title_justify="left")
+    table.add_column("Username", style="dim")
+    table.add_column("Full Name", style="bold white")
+    table.add_column("Email", style="blue")
+    table.add_column("Group Role", style="green")
+
+    # Populate rows from your dataclass fields
+    for m in members:
+        table.add_row(m.username, m.fullName, m.email or "—", m.group_role.upper())
+
+    console.print(table)
+
+    if export_csv:
+        utils_ops.export_to_csv(members, export_csv)
+        typer.echo(f"Data exported to {export_csv}")
+
+
 # ---------------------------------------------------------------------------
 # Membership
 # ---------------------------------------------------------------------------
@@ -948,8 +996,6 @@ def cmd_delete_group(
 # ---------------------------------------------------------------------------
 # Content
 # ---------------------------------------------------------------------------
-
-
 @group_app.command("content")
 def cmd_group_content(
     group: str = typer.Argument(..., help="Group ID or title."),
