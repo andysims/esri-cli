@@ -1,11 +1,13 @@
 # ---------------------------------------------------------
-# DEVELOPMENT NOTICE: This project is actively built out.
-# Additional dependencies will be added as features grow.
-# A finalized, pinned version will be released later.
+# Core requirements for the finalized esri-cli toolkit.
+# Ensure all packages are installed for full CLI functionality.
 # ---------------------------------------------------------
 
-# Core Framework
-arcgis>=2.0.0
-python-dotenv>=0.19.0
-pandas
+# Core Framework & CLI Engine
 typer>=0.9.0
+rich>=13.0.0
+python-dotenv>=0.19.0
+
+# Data Processing & GIS Analytics
+pandas
+arcgis>=2.0.0
