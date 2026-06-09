@@ -103,11 +103,10 @@ def _connect(env: str) -> GIS:
 # USER commands
 # ===========================================================================
 
+
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
-
-
 @user_app.command("find")
 def cmd_find_user(
     username: Optional[str] = typer.Option(
@@ -223,8 +222,6 @@ def cmd_user_folders(
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
-
-
 @user_app.command("create")
 def cmd_create_user(
     username: str = typer.Option(..., "--username", "-u", help="New account username."),
@@ -1300,15 +1297,590 @@ def cmd_broken_dependencies(
         raise typer.Exit(1)
 
 
-# ===========================================================================
-# Future domains:
-#
-#   content_app = typer.Typer(help="Content management commands.")
-#   app.add_typer(content_app, name="content")
-#
-#   audit_app = typer.Typer(help="Audit and reporting commands.")
-#   app.add_typer(audit_app, name="audit")
-# ===========================================================================
+@audit_app.command(name="sharing")
+def sharing_audit(
+    username: Optional[str] = typer.Option(
+        None, "--username", "-u", help="Scope to a single user. Omit for org-wide."
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_txt: Optional[str] = typer.Option(
+        None, "--export-txt", help="Filename prefix for a .txt export to ~/Downloads."
+    ),
+):
+    """Audit item sharing permissions (Public, Org, Private) across the org or for one user."""
+    gis = _connect(env)
+    results = audit_ops.sharing_audit(gis, username=username or "")
+
+    if not results:
+        console.print("[yellow]No items found or user not found.[/yellow]")
+        raise typer.Exit(1)
+
+    total = results["total_items"]
+    public = results["public_count"]
+    org = results["org_count"]
+    private = results["private_count"]
+
+    # avoids ZeroDivisionError if org is empty.
+    def pct(n):
+        return f"{round(n / total * 100, 1)}%" if total else "—"
+
+    table = Table(
+        title=f"Sharing Audit — {results['scope']}", show_lines=False, show_edge=True
+    )
+    table.add_column("Access Level", style="bold")
+    table.add_column("Count", justify="right", style="cyan")
+    table.add_column("% of Total", justify="right")
+
+    # Color-code access levels so public items stand out immediately.
+    table.add_row("[red]Public[/red]", str(public), pct(public))
+    table.add_row("[yellow]Org[/yellow]", str(org), pct(org))
+    table.add_row("[dim]Private[/dim]", str(private), pct(private))
+    table.add_row("[bold]Total[/bold]", str(total), "100%", end_section=True)
+
+    console.print(table)
+
+    if export_txt:
+        # Build a plain-text version of the same data — no markup needed here
+        # since we're writing to a file, not a terminal.
+        lines = [
+            f"Scope:   {results['scope']}",
+            "",
+            f"{'Access Level':<15} {'Count':>8}  {'% of Total':>10}",
+            "-" * 38,
+            f"{'Public':<15} {public:>8}  {pct(public):>10}",
+            f"{'Org':<15} {org:>8}  {pct(org):>10}",
+            f"{'Private':<15} {private:>8}  {pct(private):>10}",
+            "-" * 38,
+            f"{'Total':<15} {total:>8}  {'100%':>10}",
+        ]
+        utils_ops.export_to_txt("\n".join(lines), export_txt)
+        console.print(
+            f"[green]✓[/green] Text report saved — prefix: [bold]{export_txt}[/bold]"
+        )
+
+
+@audit_app.command(name="roles")
+def users_by_role(
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_txt: Optional[str] = typer.Option(
+        None, "--export-txt", help="Filename prefix for a .txt export to ~/Downloads."
+    ),
+):
+    """Breakdown of users grouped by their assigned role."""
+    gis = _connect(env)
+    results = audit_ops.users_by_role(gis)
+
+    if not results:
+        console.print("[yellow]No role data returned.[/yellow]")
+        return
+
+    table = Table(title="Users by Role", show_lines=False)
+    table.add_column("Role", style="cyan")
+    table.add_column("Users", justify="right")
+
+    total = sum(results.values())
+    sorted_rows = sorted(results.items(), key=lambda x: x[1], reverse=True)
+
+    for role, count in sorted(results.items(), key=lambda x: x[1], reverse=True):
+        table.add_row(role or "none", str(count))
+
+    table.add_section()
+    table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
+    console.print(table)
+
+    if export_txt:
+        lines = [
+            f"{'Role':<40} {'Users':>8}",
+            "-" * 50,
+        ]
+        for role, count in sorted_rows:
+            lines.append(f"{(role or 'none'):<40} {count:>8}")
+        lines += ["-" * 50, f"{'Total':<40} {total:>8}"]
+        utils_ops.export_to_txt("\n".join(lines), export_txt)
+        console.print(
+            f"[green]✓[/green] Text report saved — prefix: [bold]{export_txt}[/bold]"
+        )
+
+
+@audit_app.command(name="licenses")
+def users_by_license_type(
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_txt: Optional[str] = typer.Option(
+        None, "--export-txt", help="Filename prefix for a .txt export to ~/Downloads."
+    ),
+):
+    """Breakdown of users grouped by license type."""
+    gis = _connect(env)
+    results = audit_ops.users_by_license_type(gis)
+
+    if not results:
+        console.print("[yellow]No license data returned.[/yellow]")
+        return
+
+    table = Table(title="Users by License Type", show_lines=False)
+    table.add_column("License Type ID", style="cyan")
+    table.add_column("Users", justify="right")
+
+    total = sum(results.values())
+    sorted_rows = sorted(results.items(), key=lambda x: x[1], reverse=True)
+
+    for license_id, count in sorted(results.items(), key=lambda x: x[1], reverse=True):
+        table.add_row(license_id or "none", str(count))
+
+    table.add_section()
+    table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
+    console.print(table)
+
+    if export_txt:
+        lines = [
+            f"{'License Type ID':<35} {'Users':>8}",
+            "-" * 45,
+        ]
+        for license_id, count in sorted_rows:
+            lines.append(f"{(license_id or 'none'):<35} {count:>8}")
+        lines += ["-" * 45, f"{'Total':<35} {total:>8}"]
+        utils_ops.export_to_txt("\n".join(lines), export_txt)
+        console.print(
+            f"[green]✓[/green] Text report saved — prefix: [bold]{export_txt}[/bold]"
+        )
+
+
+@audit_app.command(name="license-usage")
+def licenses_threshold(
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_txt: Optional[str] = typer.Option(
+        None, "--export-txt", help="Filename prefix for a .txt export to ~/Downloads."
+    ),
+):
+    """Check remaining license pool capacity against current usage."""
+    gis = _connect(env)
+    results = audit_ops.license_threshold(gis)
+
+    summary = results.pop("summary", {})
+
+    table = Table(title="License Pool Usage", show_lines=True)
+    table.add_column("License ID", style="dim", no_wrap=True)
+    table.add_column("Name", style="cyan")
+    table.add_column("Assigned", justify="right")
+    table.add_column("Purchased", justify="right")
+    table.add_column("Available", justify="right")
+    table.add_column("Available %", justify="right")
+
+    sorted_rows = sorted(results.items())
+
+    for license_id, info in sorted(results.items()):
+        available = info["available"]
+        available_pct = info["available_pct"]
+
+        avail_str = str(available)
+        if isinstance(available_pct, str) and available_pct != "N/A":
+            try:
+                pct_val = float(available_pct.strip("%"))
+                if pct_val < 10:
+                    avail_str = f"[red]{available}[/red]"
+                elif pct_val < 25:
+                    avail_str = f"[yellow]{available}[/yellow]"
+                else:
+                    avail_str = f"[green]{available}[/green]"
+            except ValueError:
+                pass
+
+        table.add_row(
+            license_id,
+            info["name"] or "—",
+            str(info["assigned"]),
+            str(info["total_purchased"]),
+            avail_str,
+            available_pct,
+        )
+
+    console.print(table)
+
+    # Summary panel underneath the table.
+    if summary:
+        lines = [
+            f"[bold]Total Assigned:[/bold]   {summary.get('total_assigned', '—')}",
+            f"[bold]Total Purchased:[/bold]  {summary.get('total_purchased_limit', '—')}",
+            f"[bold]Total Available:[/bold]  {summary.get('total_available_seats', '—')}",
+        ]
+        console.print(Panel("\n".join(lines), title="Org-Wide Summary", expand=False))
+
+    if export_txt:
+        # Column widths chosen to fit typical ArcGIS license ID lengths.
+        w = {
+            "id": 28,
+            "name": 30,
+            "assigned": 10,
+            "purchased": 10,
+            "available": 10,
+            "pct": 12,
+        }
+        header = (
+            f"{'License ID':<{w['id']}} "
+            f"{'Name':<{w['name']}} "
+            f"{'Assigned':>{w['assigned']}} "
+            f"{'Purchased':>{w['purchased']}} "
+            f"{'Available':>{w['available']}} "
+            f"{'Avail %':>{w['pct']}}"
+        )
+        sep = "-" * len(header)
+        lines = [header, sep]
+
+        for license_id, info in sorted_rows:
+            lines.append(
+                f"{license_id:<{w['id']}} "
+                f"{(info['name'] or '—'):<{w['name']}} "
+                f"{info['assigned']:>{w['assigned']}} "
+                f"{info['total_purchased']:>{w['purchased']}} "
+                f"{info['available']:>{w['available']}} "
+                f"{info['available_pct']:>{w['pct']}}"
+            )
+
+        if summary:
+            lines += [
+                sep,
+                f"Total Assigned:  {summary.get('total_assigned', '—')}",
+                f"Total Purchased: {summary.get('total_purchased_limit', '—')}",
+                f"Total Available: {summary.get('total_available_seats', '—')}",
+            ]
+
+        utils_ops.export_to_txt("\n".join(lines), export_txt)
+        console.print(
+            f"[green]✓[/green] Text report saved — prefix: [bold]{export_txt}[/bold]"
+        )
+
+
+@audit_app.command(name="provider")
+def user_provider_breakdown(
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_txt: Optional[str] = typer.Option(
+        None, "--export-txt", help="Filename prefix for a .txt export to ~/Downloads."
+    ),
+):
+    """Breakdown of users by authentication provider (ArcGIS vs enterprise/SAML)."""
+    gis = _connect(env)
+    results = audit_ops.user_provider_breakdown(gis)
+
+    if not results:
+        console.print("[yellow]No provider data returned.[/yellow]")
+        return
+
+    table = Table(title="Users by Auth Provider", show_lines=False)
+    table.add_column("Provider", style="cyan")
+    table.add_column("Users", justify="right")
+
+    total = sum(results.values())
+    sorted_rows = sorted(results.items(), key=lambda x: x[1], reverse=True)
+
+    for provider, count in sorted(results.items(), key=lambda x: x[1], reverse=True):
+        table.add_row(provider or "unknown", str(count))
+
+    table.add_section()
+    table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
+    console.print(table)
+
+    if export_txt:
+        lines = [
+            f"{'Provider':<30} {'Users':>8}",
+            "-" * 40,
+        ]
+        for provider, count in sorted_rows:
+            lines.append(f"{(provider or 'unknown'):<30} {count:>8}")
+        lines += ["-" * 40, f"{'Total':<30} {total:>8}"]
+        utils_ops.export_to_txt("\n".join(lines), export_txt)
+        console.print(
+            f"[green]✓[/green] Text report saved — prefix: [bold]{export_txt}[/bold]"
+        )
+
+
+@audit_app.command(name="disabled")
+def disabled_users(
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Path to export the output as a CSV file."
+    ),
+):
+    """List all disabled user accounts in the organization."""
+    gis = _connect(env)
+    results = audit_ops.disabled_users(gis)
+
+    if export_csv:
+        utils_ops.export_to_csv(results, export_csv)
+        console.print(f"[green]✓[/green] Exported to [bold]{export_csv}[/bold]")
+        return
+
+    if not results:
+        console.print("[green]No disabled accounts found.[/green]")
+        return
+
+    table = Table(title=f"Disabled Accounts ({len(results)})", show_lines=True)
+    table.add_column("Username", style="cyan", no_wrap=True)
+    table.add_column("Full Name")
+    table.add_column("Email")
+    table.add_column("License Type")
+    table.add_column("Created")
+    table.add_column("Last Login")
+    table.add_column("Days Since Login", justify="right")
+    table.add_column("Provider")
+
+    for u in results:
+        days = (
+            str(u.daysSinceLastLogin) if u.daysSinceLastLogin is not None else "Never"
+        )
+        table.add_row(
+            u.username,
+            u.fullName,
+            u.email,
+            u.userLicenseType,
+            u.created,
+            u.lastLogin or "Never",
+            days,
+            u.provider,
+        )
+
+    console.print(table)
+
+
+@audit_app.command(name="new-items")
+def new_items(
+    days: int = typer.Option(7, help="Lookback window in days."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Optional CSV destination file path."
+    ),
+):
+    """List content items created within the last N days."""
+    gis = _connect(env)
+    results = audit_ops.new_items(gis, days=days)
+
+    if export_csv:
+        utils_ops.export_to_csv(results, export_csv)
+        console.print(f"[green]✓[/green] Exported to [bold]{export_csv}[/bold]")
+        return
+
+    if not results:
+        console.print(f"[yellow]No new items found in the last {days} days.[/yellow]")
+        return
+
+    table = Table(
+        title=f"New Items — Last {days} Days ({len(results)})", show_lines=True
+    )
+    table.add_column("ID", style="dim", no_wrap=True)
+    table.add_column("Title", style="cyan")
+    table.add_column("Type")
+    table.add_column("Owner")
+    table.add_column("Access")
+    table.add_column("Created")
+
+    for item in results:
+        # Color the access column so public items catch the eye.
+        access_str = item.access or "—"
+        if access_str == "public":
+            access_str = f"[red]{access_str}[/red]"
+        elif access_str == "org":
+            access_str = f"[yellow]{access_str}[/yellow]"
+
+        table.add_row(
+            item.id,
+            item.title,
+            item.type,
+            item.owner,
+            access_str,
+            item.created or "—",
+        )
+
+    console.print(table)
+
+
+@audit_app.command(name="new-users")
+def new_users(
+    days: int = typer.Option(7, help="Lookback window in days."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Optional CSV destination file path."
+    ),
+):
+    """List user accounts provisioned within the last N days."""
+    gis = _connect(env)
+    results = audit_ops.new_users(gis, days=days)
+
+    if export_csv:
+        utils_ops.export_to_csv(results, export_csv)
+        console.print(f"[green]✓[/green] Exported to [bold]{export_csv}[/bold]")
+        return
+
+    if not results:
+        console.print(f"[yellow]No new users found in the last {days} days.[/yellow]")
+        return
+
+    table = Table(
+        title=f"New Users — Last {days} Days ({len(results)})", show_lines=True
+    )
+    table.add_column("Username", style="cyan", no_wrap=True)
+    table.add_column("Full Name")
+    table.add_column("Email")
+    table.add_column("Role")
+    table.add_column("License Type")
+    table.add_column("Provider")
+    table.add_column("Created")
+
+    for u in results:
+        table.add_row(
+            u.username,
+            u.fullName,
+            u.email,
+            u.role,
+            u.userLicenseType,
+            u.provider,
+            u.created or "—",
+        )
+
+    console.print(table)
+
+
+@audit_app.command(name="new-groups")
+def new_groups(
+    days: int = typer.Option(7, help="Lookback window in days."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Optional CSV destination file path."
+    ),
+):
+    """List groups created within the last N days."""
+    gis = _connect(env)
+    results = audit_ops.new_groups(gis, days=days)
+
+    if export_csv:
+        utils_ops.export_to_csv(results, export_csv)
+        console.print(f"[green]✓[/green] Exported to [bold]{export_csv}[/bold]")
+        return
+
+    if not results:
+        console.print(f"[yellow]No new groups found in the last {days} days.[/yellow]")
+        return
+
+    table = Table(
+        title=f"New Groups — Last {days} Days ({len(results)})", show_lines=True
+    )
+    table.add_column("ID", style="dim", no_wrap=True)
+    table.add_column("Title", style="cyan")
+    table.add_column("Owner")
+    table.add_column("Access")
+    table.add_column("Members", justify="right")
+    table.add_column("Items", justify="right")
+    table.add_column("Protected")
+    table.add_column("Created")
+
+    for g in results:
+        table.add_row(
+            g.id,
+            g.title,
+            g.owner,
+            g.access,
+            str(g.member_count),
+            str(g.item_count),
+            "Yes" if g.protected else "No",
+            g.created or "—",
+        )
+
+    console.print(table)
+
+
+@audit_app.command(name="whats-new")
+def new_assets_report(
+    days: int = typer.Option(7, help="Unified lookback window in days."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Combined 'What's New' dashboard — users, groups, and content in one view."""
+    gis = _connect(env)
+
+    with console.status(f"Pulling activity for the last [bold]{days}[/bold] days..."):
+        report = audit_ops.new_assets_report(gis, days=days)
+
+    users = report.get("users", [])
+    groups = report.get("groups", [])
+    items = report.get("items", [])
+
+    # ── Summary panel at the top ──────────────────────────────────────────
+    summary_lines = [
+        f"[bold]Period:[/bold]        Last {days} days",
+        f"[bold]New Users:[/bold]     {len(users)}",
+        f"[bold]New Groups:[/bold]    {len(groups)}",
+        f"[bold]New Items:[/bold]     {len(items)}",
+    ]
+    console.print(
+        Panel(
+            "\n".join(summary_lines),
+            title="[bold cyan]What's New[/bold cyan]",
+            expand=False,
+        )
+    )
+    print()
+    # ── Users mini-table ──────────────────────────────────────────────────
+    if users:
+        u_table = Table(
+            title=f"New Users ({len(users)})",
+            show_lines=False,
+            box=None,
+            pad_edge=False,
+        )
+        u_table.add_column("Username", style="cyan", no_wrap=True)
+        u_table.add_column("Full Name")
+        u_table.add_column("Role")
+        u_table.add_column("License")
+        u_table.add_column("Created")
+        for u in users:
+            u_table.add_row(
+                u.username, u.fullName, u.role, u.userLicenseType, u.created or "—"
+            )
+        console.print(u_table)
+    else:
+        console.print("[dim]No new users.[/dim]")
+    print()
+    # ── Groups mini-table ─────────────────────────────────────────────────
+    if groups:
+        g_table = Table(
+            title=f"New Groups ({len(groups)})",
+            show_lines=False,
+            box=None,
+            pad_edge=False,
+        )
+        g_table.add_column("Title", style="cyan")
+        g_table.add_column("Owner")
+        g_table.add_column("Access")
+        g_table.add_column("Created")
+        for g in groups:
+            g_table.add_row(g.title, g.owner, g.access, g.created or "—")
+        console.print(g_table)
+    else:
+        console.print("[dim]No new groups.[/dim]")
+
+    # ── Items mini-table ──────────────────────────────────────────────────
+    if items:
+        i_table = Table(
+            title=f"New Items ({len(items)})",
+            show_lines=False,
+            box=None,
+            pad_edge=False,
+        )
+        i_table.add_column("Title", style="cyan")
+        i_table.add_column("Type")
+        i_table.add_column("Owner")
+        i_table.add_column("Access")
+        i_table.add_column("Created")
+        for item in items:
+            access_str = item.access or "—"
+            if access_str == "public":
+                access_str = f"[red]{access_str}[/red]"
+            elif access_str == "org":
+                access_str = f"[yellow]{access_str}[/yellow]"
+            i_table.add_row(
+                item.title, item.type, item.owner, access_str, item.created or "—"
+            )
+        console.print(i_table)
+    else:
+        console.print("[dim]No new items.[/dim]")
+    print()
 
 
 if __name__ == "__main__":

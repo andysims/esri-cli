@@ -75,3 +75,32 @@ def export_to_csv(data: Union[Any, List[Any]], filename_prefix: str):
         writer.writerows(dict_data)
 
     print(f"Successfully exported {len(data)} record(s) to: {file_path}")
+
+
+def export_to_txt(content: str, filename_prefix: str) -> None:
+    """Write a plain-text report string to ~/Downloads/<prefix>_YYYYMMDD.txt.
+
+    content:         The formatted string to write. Should already be stripped
+                     of Rich markup (use _strip_markup() in main.py before
+                     passing in).
+    filename_prefix: Used as the base name, e.g. "sharing_audit" →
+                     sharing_audit_20260609.txt
+    """
+    from pathlib import Path
+    from datetime import datetime
+
+    if not content or not content.strip():
+        print("No content to export.")
+        return
+
+    downloads_path = Path.home() / "Downloads"
+    timestamp = datetime.now().strftime("%Y%m%d")
+    file_path = downloads_path / f"{filename_prefix}_{timestamp}.txt"
+
+    with open(file_path, mode="w", encoding="utf-8") as f:
+        f.write(f"ArcGIS Admin CLI — {filename_prefix.replace('_', ' ').title()}\n")
+        f.write(f"Generated: {datetime.now().strftime('%m/%d/%Y %I:%M %p')}\n")
+        f.write("=" * 60 + "\n\n")
+        f.write(content)
+
+    print(f"Exported to: {file_path}")
