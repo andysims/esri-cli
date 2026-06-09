@@ -104,3 +104,147 @@ def export_to_txt(content: str, filename_prefix: str) -> None:
         f.write(content)
 
     print(f"Exported to: {file_path}")
+
+
+def export_whats_new_txt(report: dict, days: int, filename_prefix: str) -> None:
+    """Export the new_assets_report dict to a formatted .txt file in ~/Downloads.
+
+    report:          The AuditReport dict with keys 'users', 'groups', 'items'.
+                     Each value is a list of ArcGISUser, ArcGISGroup, ArcGISItem.
+    days:            The lookback window used — written into the report header.
+    filename_prefix: Base name for the file, e.g. "whats_new" →
+                     whats_new_20260609.txt
+    """
+    from pathlib import Path
+    from datetime import datetime
+
+    users = report.get("users", [])
+    groups = report.get("groups", [])
+    items = report.get("items", [])
+
+    downloads_path = Path.home() / "Downloads"
+    timestamp = datetime.now().strftime("%Y%m%d")
+    file_path = downloads_path / f"{filename_prefix}_{timestamp}.txt"
+
+    def sep(width=70):
+        return "-" * width
+
+    lines = []
+
+    # ── File header ───────────────────────────────────────────────────────
+    lines += [
+        "ArcGIS Admin CLI — What's New Report",
+        f"Generated:  {datetime.now().strftime('%m/%d/%Y %I:%M %p')}",
+        f"Period:     Last {days} days",
+        "=" * 70,
+        "",
+        f"  New Users:   {len(users)}",
+        f"  New Groups:  {len(groups)}",
+        f"  New Items:   {len(items)}",
+        "",
+        "=" * 70,
+    ]
+
+    # ── Users section ─────────────────────────────────────────────────────
+    lines += ["", f"NEW USERS ({len(users)})", sep()]
+
+    if users:
+        # Column widths sized for typical ArcGIS field lengths.
+        cw = {"username": 25, "fullName": 28, "role": 20, "license": 18, "created": 20}
+        header = (
+            f"{'Username':<{cw['username']}} "
+            f"{'Full Name':<{cw['fullName']}} "
+            f"{'Role':<{cw['role']}} "
+            f"{'License':<{cw['license']}} "
+            f"{'Created':<{cw['created']}}"
+        )
+        lines += [header, sep()]
+        for u in users:
+            lines.append(
+                f"{(u.username or ''):<{cw['username']}} "
+                f"{(u.fullName or ''):<{cw['fullName']}} "
+                f"{(u.role or ''):<{cw['role']}} "
+                f"{(u.userLicenseType or ''):<{cw['license']}} "
+                f"{(u.created or '—'):<{cw['created']}}"
+            )
+    else:
+        lines.append("  No new users in this period.")
+
+    # ── Groups section ────────────────────────────────────────────────────
+    lines += ["", "", f"NEW GROUPS ({len(groups)})", sep()]
+
+    if groups:
+        cw = {"title": 35, "owner": 25, "access": 12, "created": 20}
+        header = (
+            f"{'Title':<{cw['title']}} "
+            f"{'Owner':<{cw['owner']}} "
+            f"{'Access':<{cw['access']}} "
+            f"{'Created':<{cw['created']}}"
+        )
+        lines += [header, sep()]
+        for g in groups:
+            lines.append(
+                f"{(g.title or ''):<{cw['title']}} "
+                f"{(g.owner or ''):<{cw['owner']}} "
+                f"{(g.access or ''):<{cw['access']}} "
+                f"{(g.created or '—'):<{cw['created']}}"
+            )
+    else:
+        lines.append("  No new groups in this period.")
+
+    # ── Items section ─────────────────────────────────────────────────────
+    lines += ["", "", f"NEW ITEMS ({len(items)})", sep()]
+
+    if items:
+        cw = {"title": 35, "type": 22, "owner": 22, "access": 10, "created": 20}
+        header = (
+            f"{'Title':<{cw['title']}} "
+            f"{'Type':<{cw['type']}} "
+            f"{'Owner':<{cw['owner']}} "
+            f"{'Access':<{cw['access']}} "
+            f"{'Created':<{cw['created']}}"
+        )
+        lines += [header, sep()]
+        for item in items:
+            lines.append(
+                f"{(item.title or ''):<{cw['title']}} "
+                f"{(item.type or ''):<{cw['type']}} "
+                f"{(item.owner or ''):<{cw['owner']}} "
+                f"{(item.access or '—'):<{cw['access']}} "
+                f"{(item.created or '—'):<{cw['created']}}"
+            )
+    else:
+        lines.append("  No new items in this period.")
+
+    lines += ["", "=" * 70, ""]
+
+    with open(file_path, mode="w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"Exported to: {file_path}")
+
+
+def export_whats_new_csv(report: "AuditReport") -> None:
+    """Export each section of a new_assets_report to its own CSV in ~/Downloads.
+
+    Produces up to three files (skips empty sections):
+        new_users_YYYYMMDD.csv
+        new_groups_YYYYMMDD.csv
+        new_items_YYYYMMDD.csv
+
+    All dataclass fields are included — not just the ones shown on screen.
+    Sorting by 'created' descending is handled by the existing export_to_csv().
+    """
+    users = report.get("users", [])
+    groups = report.get("groups", [])
+    items = report.get("items", [])
+
+    if users:
+        export_to_csv(users, "new_users")
+    if groups:
+        export_to_csv(groups, "new_groups")
+    if items:
+        export_to_csv(items, "new_items")
+
+    if not any([users, groups, items]):
+        print("Nothing to export — all sections are empty.")

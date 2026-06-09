@@ -1790,8 +1790,19 @@ def new_groups(
 def new_assets_report(
     days: int = typer.Option(7, help="Unified lookback window in days."),
     env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: bool = typer.Option(
+        False, "--export-csv", help="Export each section to its own CSV in ~/Downloads."
+    ),
 ):
-    """Combined 'What's New' dashboard — users, groups, and content in one view."""
+    """Combined 'What's New' dashboard — users, groups, and content in one view.
+
+    Use --export-csv to dump all three sections to separate CSVs with every
+    field included (not just the columns shown on screen).
+
+    Examples:
+        esri-cli audit whats-new
+        esri-cli audit whats-new --days 30 --export-csv
+    """
     gis = _connect(env)
 
     with console.status(f"Pulling activity for the last [bold]{days}[/bold] days..."):
@@ -1881,6 +1892,12 @@ def new_assets_report(
     else:
         console.print("[dim]No new items.[/dim]")
     print()
+
+    if export_csv:
+        utils_ops.export_whats_new_csv(report)
+        console.print(
+            "[green]✓[/green] Exported to [bold]~/Downloads[/bold] — new_users, new_groups, new_items CSVs."
+        )
 
 
 if __name__ == "__main__":
