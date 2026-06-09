@@ -1,28 +1,35 @@
 import datetime as dt
+from datetime import datetime, timedelta, timezone
 import logging
-from dataclasses import dataclass
-from arcgis.gis import GIS, User
+from arcgis.gis import GIS, Item
 from collections import Counter  # probably throw this into reporting
 
-from .auth import gis_conn, load_config
-from .utils import esri_timestamp_to_str
 from .users import find_user
-from .common import get_user
-from .models import ArcGISUser, ArcGISItem
+from .models import ArcGISUser, ArcGISItem, ArcGISGroup, AuditReport
 
 log = logging.getLogger(__name__)
 logging.getLogger("arcgis").setLevel(logging.ERROR)
 
 
-# ======== User/Access Audits ========
-def total_users(gis) -> int:
+def total_users(gis: GIS) -> int:
     user_counts = gis.users.counts("user_type", as_df=False)
     total_users: int = sum(item["count"] for item in user_counts)
     log.info("There are %d total users.", total_users)
 
     return total_users
 
+    # def total_items(gis: GIS) -> int:
+    """Returns the total number of items owned by the organization."""
 
+
+#    total_count: int = gis.content.advanced_search(query="*", return_count=True)
+
+#    print(total_count)
+#    log.info("There are %d total items in the organization.", total_count)
+#    return total_count
+
+
+# ======== User/Access Audits ========
 def inactive_users(gis: GIS, days: int = 90) -> list[ArcGISUser]:
     """Return users who have never logged in or haven't logged in within N days."""
 
@@ -182,100 +189,125 @@ def broken_dependencies(gis: GIS) -> list[ArcGISItem]:
 # ======== Limits/Availability ========
 def users_by_role(gis: GIS) -> dict[str, int]:
     """Returns a count of users grouped by their role."""
-    users = gis.users.search(max_users=total_users(gis))
+    users = gis.users.search(max_users=total_users(gis), outside_org=False)
     return dict(Counter(u.get("role", "none") for u in users))
 
 
 def users_by_license_type(gis: GIS) -> dict[str, int]:
     """Returns a count of users grouped by license type (userLicenseTypeId)."""
 
-    users = gis.users.search(max_users=total_users(gis))
+    users = gis.users.search(max_users=total_users(gis), outside_org=False)
     return dict(Counter(u.get("userLicenseTypeId", "none") for u in users))
 
 
-# FIX!
-def license_threshold(gis: GIS) -> dict[str, dict[str, int]]:
-    """Dynamically pulls total purchased license allocations directly from the
-    GIS portal and compares them against current usage.
-    """
-    org_properties = gis.properties
+def license_threshold(gis: GIS) -> dict:
+    """Returns detailed license usage and availability analytics for the organization."""
 
-    available_types = org_properties.get("availableUserTypes", [])
+    users = gis.users.search(max_users=total_users(gis), outside_org=False)
+    active_counts = Counter(u.get("userLicenseTypeId", "none") for u in users)
 
-    # Build total_available dictionary; ex: {'creator': 50, 'viewer': 200}
-    total_available = {
-        item["id"]: item["total"]
-        for item in available_types
-        if "id" in item and "total" in item
-    }
-
-    usage = users_by_license_type(gis)
+    portal_licenses = gis.users.license_types
 
     report = {}
-    for license_type, limit in total_available.items():
-        used = usage.get(license_type, 0)
-        report[license_type] = {
-            "used": used,
-            "available": limit,
-            "remaining": max(0, limit - used),
+    total_assigned = 0
+    total_limit = 0
+
+    for license_meta in portal_licenses:
+        license_id = license_meta.get("id")  # e.g., 'viewerUT'
+        display_name = license_meta.get("name")  # e.g., 'Viewer'
+        max_seats = license_meta.get("maxUsers", 0)  # Total seats allowed
+
+        assigned_count = active_counts.get(license_id, 0)
+        available_seats = max_seats - assigned_count
+
+        # Build individual analytics record
+        report[license_id] = {
+            "name": display_name,
+            "assigned": assigned_count,
+            "total_purchased": max_seats,
+            "available": available_seats,
+            "available_pct": (
+                str(f"{round((available_seats / max_seats) * 100, 0)}%")
+                if max_seats != 0
+                else "N/A"
+            ),
         }
 
+        # Increment global metrics
+        total_assigned += assigned_count
+        total_limit += max_seats
+
+    # 3. Add global overview summary metrics
+    report["summary"] = {
+        "total_assigned": total_assigned,
+        "total_purchased_limit": total_limit,
+        "total_available_seats": total_limit - total_assigned,
+    }
+
     return report
-
-
-# ======== Inventory ========
 
 
 # ======== Security ========
 def user_provider_breakdown(gis: GIS) -> dict[str, int]:
     """Returns counts of 'enterprise' vs 'local' (provider) users."""
-    users = gis.users.search(max_users=total_users(gis))
+    users = gis.users.search(max_users=total_users(gis), outside_org=False)
     return dict(Counter(u.get("provider", "unknown") for u in users))
 
 
 def disabled_users(gis: GIS) -> list[ArcGISUser]:
-    """Returns a list of all disabled ArcGISUser dataclasses."""
-    all_users = gis.users.search(max_users=total_users(gis))
+    """Returns a list of all disabled using ArcGISUser dataclasses."""
+    all_users = gis.users.search(max_users=total_users(gis), outside_org=False)
     return [ArcGISUser.from_arcgis(u) for u in all_users if u.get("disabled") is True]
 
 
-"""
-# ==== Functions to create ====
-# User/Access Audits
-- admin_count_audit
-- inactive_users: DONE
-- sharing_audit: DONE
-- user_sharing_audit: IP
+# ======== Activity ========
+def new_items(gis: GIS, days: int = 7) -> list[ArcGISItem]:
+    """Returns items created within the last N days."""
+    start_date = datetime.now(timezone.utc) - timedelta(days=days)
+    # milliseconds
+    start_ms = int(start_date.timestamp() * 1000)
 
-# Content Exposure
-- public_item_audit
-- broken_links_audit
+    query = (
+        f"created:[{start_ms} TO {int(datetime.now(timezone.utc).timestamp() * 1000)}]"
+    )
 
-# Group Audits
-- group_security_audit
-- empty_groups_audit
+    # avoid max_items=total_items() if you have 50k+ items
+    # this will cause significant lag. Use a reasonable limit.
+    items = gis.content.search(query=query, max_items=10000)
+    valid_items = [item for item in items if isinstance(item, Item)]
 
-# Limit Auditing
-- license_threshold_audit
-- role_threshold_audit
+    return [ArcGISItem.from_arcgis(item) for item in valid_items]
 
 
+def new_users(gis: GIS, days: int = 7) -> list[ArcGISUser]:
+    """Return users created within the last N days."""
+    cutoff_date = dt.datetime.now() - dt.timedelta(days=days)
+    cutoff_timestamp_ms = int(cutoff_date.timestamp() * 1000)
 
-==================
-# Activity
-- get_user_activity (last login, creation date, login frequency)
-- get_inactive_users (no login within N days)
-- get_login_report
+    all_users = gis.users.search(max_users=total_users(gis), outside_org=False)
 
-# Inventory
-- get_org_user_summary (counts by role, type, provider)
-- get_unowned_content (items whose owner no longer exists)
-- get_shared_publicly (all publicly shared items)
-- get_items_not_accessed (stale content by modified/viewed date)
+    return [
+        ArcGISUser.from_arcgis(u)
+        for u in all_users
+        if u.get("created", 0) >= cutoff_timestamp_ms
+    ]
 
-# Security
-- get_users_without_mfa
-- get_enterprise_vs_local_breakdown
-- get_disabled_users
-- get_users_by_role
-"""
+
+def new_groups(gis: GIS, days: int = 7) -> list[ArcGISGroup]:
+    """Return groups created within the last N days."""
+    cutoff_date = dt.datetime.now() - dt.timedelta(days=days)
+    query = f"created: [{int(cutoff_date.timestamp() * 1000)} TO {int(dt.datetime.now().timestamp() * 1000)}]"
+    groups = gis.groups.search(
+        query=query, max_groups=total_users(gis), outside_org=False
+    )
+
+    return [ArcGISGroup.from_arcgis(g) for g in groups]
+
+
+def new_assets_report(gis: GIS, days: int = 7) -> AuditReport:
+    """Aggregates new items, users, and groups into a structured report."""
+    return {
+        "items": new_items(gis, days),
+        "users": new_users(gis, days),
+        "groups": new_groups(gis, days),
+    }
