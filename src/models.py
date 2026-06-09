@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from .utils import esri_timestamp_to_str
 import datetime as dt
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TypedDict
 from arcgis.gis import Item
 
 
@@ -233,25 +233,38 @@ class ArcGISItem:
 
     @classmethod
     def from_arcgis(cls, item_obj: Any) -> "ArcGISItem":
-        """Create ArcGISItem from an arcgis.gis.Item object."""
-        props = getattr(item_obj, "properties", None) or {}
-        if not props:
-            props = item_obj
+        """
+        Creates an ArcGISItem from an arcgis.gis.Item object or a dictionary.
+        """
 
-        item_id = props.get("id") or ""
+        def get_val(obj: Any, key: str, default: Any = None) -> Any:
+            if hasattr(obj, key):
+                return getattr(obj, key)
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return default
 
-        if not item_id.strip():
+        # looking for 'itemid' (Item object) or 'id' (dict)
+        item_id = get_val(item_obj, "itemid") or get_val(item_obj, "id")
+
+        if not item_id or not str(item_id).strip():
             raise ValueError("Item record is missing a valid item ID identifier.")
 
         return cls(
-            id=item_id,
-            title=props.get("title", "Untitled"),
-            type=props.get("type", "Unknown"),
-            owner=props.get("owner", ""),
-            access=props.get("access", "private"),
-            created=esri_timestamp_to_str(props.get("created")),
-            modified=esri_timestamp_to_str(props.get("modified")),
-            description=props.get("description", ""),
-            tags=props.get("tags") or [],
-            url=props.get("url", ""),
+            id=str(item_id),
+            title=get_val(item_obj, "title", "Untitled"),
+            type=get_val(item_obj, "type", "Unknown"),
+            owner=get_val(item_obj, "owner", ""),
+            access=get_val(item_obj, "access", "private"),
+            created=esri_timestamp_to_str(get_val(item_obj, "created")),
+            modified=esri_timestamp_to_str(get_val(item_obj, "modified")),
+            description=get_val(item_obj, "description", ""),
+            tags=get_val(item_obj, "tags") or [],
+            url=get_val(item_obj, "url", ""),
         )
+
+
+class AuditReport(TypedDict):
+    items: list[ArcGISItem]
+    users: list[ArcGISUser]
+    groups: list[ArcGISGroup]
