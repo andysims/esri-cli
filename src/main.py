@@ -32,6 +32,7 @@ from . import users as user_ops
 from . import groups as group_ops
 from . import audit as audit_ops
 from . import utils as utils_ops
+from . import content as content_ops
 
 # ---------------------------------------------------------------------------
 # Logging — INFO goes to file, WARNING+ to stderr so Rich owns stdout cleanly.
@@ -70,8 +71,8 @@ app.add_typer(user_app, name="user")
 app.add_typer(group_app, name="group")
 app.add_typer(audit_app, name="audit")
 
-# content_app = typer.Typer(help="Content management commands.")
-# app.add_typer(content_app, name="content")
+content_app = typer.Typer(help="Content management commands.", no_args_is_help=True)
+app.add_typer(content_app, name="content")  # ← uncomment / add
 
 
 # ---------------------------------------------------------------------------
@@ -1898,6 +1899,742 @@ def new_assets_report(
         console.print(
             "[green]✓[/green] Exported to [bold]~/Downloads[/bold] — new_users, new_groups, new_items CSVs."
         )
+
+
+# ===========================================================================
+# CONTENT commands
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+@content_app.command("find")
+def cmd_find_item(
+    item_id: Optional[str] = typer.Option(
+        None, "--id", "-i", help="Item ID (exact match)."
+    ),
+    title: Optional[str] = typer.Option(None, "--title", "-t", help="Item title."),
+    owner: Optional[str] = typer.Option(None, "--owner", "-o", help="Owner username."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Filename to export results to CSV"
+    ),
+):
+    """Search for content items by ID, title, and/or owner.
+
+    All filters are AND-ed. At least one is required.
+
+    Examples:
+        esri-cli content find --title "Flood Zones"
+        esri-cli content find --owner jdoe --title "Survey"
+        esri-cli content find --id abc123def456abc123def456abc12345
+    """
+    if not any([item_id, title, owner]):
+        console.print(
+            "[yellow]Provide at least one of --id, --title, --owner.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    gis = _connect(env)
+    results = content_ops.find_item(gis, item_id=item_id, title=title, owner=owner)
+
+    if not results:
+        console.print("[yellow]No items found matching those criteria.[/yellow]")
+        return
+
+    table = Table(title=f"Items ({len(results)} found)", show_lines=True)
+    table.add_column("ID", style="dim", no_wrap=True)
+    table.add_column("Title", style="cyan")
+    table.add_column("Type")
+    table.add_column("Owner")
+    table.add_column("Access")
+    table.add_column("Modified")
+
+    for item in results:
+        access_str = item.access or "—"
+        if access_str == "public":
+            access_str = f"[red]{access_str}[/red]"
+        elif access_str == "org":
+            access_str = f"[yellow]{access_str}[/yellow]"
+
+        table.add_row(
+            item.id,
+            item.title,
+            item.type,
+            item.owner,
+            access_str,
+            item.modified or "—",
+        )
+
+    console.print(table)
+
+    if export_csv:
+        utils_ops.export_to_csv(results, export_csv)
+        typer.echo(f"Data exported to {export_csv}")
+
+
+@content_app.command("details")
+def cmd_item_details(
+    item_id: str = typer.Argument(..., help="Item ID to look up."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Show full details for a single item.
+
+    Example:
+        esri-cli content details abc123def456abc123def456abc12345
+    """
+    gis = _connect(env)
+
+    try:
+        item = content_ops.item_details(gis, item_id)
+    except ValueError as e:
+        console.print(f"[red]Not found:[/red] {e}")
+        raise typer.Exit(1)
+
+    access_str = item.access or "—"
+    if access_str == "public":
+        access_str = f"[red]{access_str}[/red]"
+    elif access_str == "org":
+        access_str = f"[yellow]{access_str}[/yellow]"
+
+    lines = [
+        f"[bold]ID:[/bold]          {item.id}",
+        f"[bold]Title:[/bold]       {item.title}",
+        f"[bold]Type:[/bold]        {item.type}",
+        f"[bold]Owner:[/bold]       {item.owner}",
+        f"[bold]Access:[/bold]      {access_str}",
+        f"[bold]Created:[/bold]     {item.created or '—'}",
+        f"[bold]Modified:[/bold]    {item.modified or '—'}",
+        f"[bold]Tags:[/bold]        {', '.join(item.tags) if item.tags else '—'}",
+        f"[bold]Description:[/bold] {item.description or '—'}",
+        f"[bold]URL:[/bold]         {item.url or '—'}",
+    ]
+    console.print(
+        Panel("\n".join(lines), title=f"[cyan]{item.title}[/cyan]", expand=False)
+    )
+
+
+@content_app.command("ownership-report")
+def cmd_content_ownership_report(
+    top_n: int = typer.Option(
+        25,
+        "--top",
+        "-n",
+        help="Number of users to show, sorted by item count descending.",
+    ),
+    exclude_users: Optional[str] = typer.Option(
+        None,
+        "--exclude",
+        "-x",
+        help="Comma-separated usernames to exclude. esri_ accounts are always excluded.",
+    ),
+    item_types: Optional[str] = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Comma-separated item types to filter by. e.g. 'Web Map,Feature Service'",
+    ),
+    owner: Optional[str] = typer.Option(
+        None, "--owner", "-o", help="Scope the entire report to a single username."
+    ),
+    export_csv: Optional[str] = typer.Option(
+        None,
+        "--export-csv",
+        help="Filename prefix to export results to CSV in ~/Downloads.",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Show content ownership ranked by item count, plus a breakdown by item type.
+
+    When --owner is provided, the ownership table is skipped and you get a
+    per-type breakdown scoped to just that user — useful for auditing a single
+    account before offboarding or reassignment.
+
+    esri_ system accounts are always excluded from the ownership table.
+
+    Examples:
+        esri-cli content ownership-report
+        esri-cli content ownership-report --top 10
+        esri-cli content ownership-report --type "Web Map,Feature Service"
+        esri-cli content ownership-report --owner jdoe
+        esri-cli content ownership-report --owner jdoe --type "Web Map"
+        esri-cli content ownership-report --exclude "svc_account" --export-csv owners
+    """
+    gis = _connect(env)
+
+    exclude_list = (
+        [u.strip() for u in exclude_users.split(",")] if exclude_users else None
+    )
+    type_list = [t.strip() for t in item_types.split(",")] if item_types else None
+
+    # ── Fetch raw items once — both tables are built from the same pull ───
+    # Build query up front so we can reuse the result for both tables.
+    if type_list:
+        type_clauses = " OR ".join(f'type:"{t}"' for t in type_list)
+        query = f"({type_clauses})"
+    else:
+        query = "*"
+
+    if owner:
+        query = f"{query} AND owner:{owner}" if query != "*" else f"owner:{owner}"
+
+    with console.status("Fetching items..."):
+        try:
+            all_items = gis.content.search(query=query, max_items=-1, outside_org=False)
+        except Exception as e:
+            console.print(f"[red bold]Error:[/red bold] {e}")
+            raise typer.Exit(1)
+
+    if not all_items:
+        console.print("[yellow]No items found matching those criteria.[/yellow]")
+        return
+
+    # ── Active filter label (shown as table caption) ──────────────────────
+    filter_parts = []
+    if owner:
+        filter_parts.append(f"owner: {owner}")
+    if type_list:
+        filter_parts.append(f"type: {', '.join(type_list)}")
+    if exclude_list:
+        filter_parts.append(f"excluding: {', '.join(exclude_list)}")
+    if not owner:
+        filter_parts.append("esri_ always excluded")
+    filter_label = (
+        "  |  ".join(filter_parts) if filter_parts else "all items, esri_ excluded"
+    )
+
+    # ── Exclusion helper ──────────────────────────────────────────────────
+    excluded = {u.lower() for u in (exclude_list or [])}
+
+    def _should_exclude(o: str) -> bool:
+        o = (o or "").lower()
+        return o.startswith("esri_") or o in excluded
+
+    # ── Table 1: Ownership (skipped when --owner is set) ──────────────────
+    if not owner:
+        counts: Counter = Counter(
+            item_owner
+            for item in all_items
+            if not _should_exclude(
+                item_owner := (getattr(item, "owner", None) or "unknown")
+            )
+        )
+
+        top_owners = counts.most_common(top_n if top_n > 0 else None)
+        ownership_rows = [
+            {"rank": i + 1, "username": u, "item_count": c}
+            for i, (u, c) in enumerate(top_owners)
+        ]
+
+        owner_table = Table(
+            title=f"Content Ownership — Top {top_n}",
+            caption=filter_label,
+            show_lines=False,
+        )
+        owner_table.add_column("Rank", justify="right", style="dim")
+        owner_table.add_column("Username", style="cyan", no_wrap=True)
+        owner_table.add_column("Item Count", justify="right")
+
+        for row in ownership_rows:
+            owner_table.add_row(
+                str(row["rank"]), row["username"], str(row["item_count"])
+            )
+
+        total_shown = sum(r["item_count"] for r in ownership_rows)
+        owner_table.add_section()
+        owner_table.add_row(
+            "",
+            f"[bold]Total (top {len(ownership_rows)})[/bold]",
+            f"[bold]{total_shown}[/bold]",
+        )
+
+        console.print(owner_table)
+        console.print()
+
+    # ── Table 2: Breakdown by item type ───────────────────────────────────
+    # Filter out excluded owners before counting types, consistent with above.
+    type_counts: Counter = Counter(
+        getattr(item, "type", None) or "Unknown"
+        for item in all_items
+        if owner or not _should_exclude(getattr(item, "owner", None) or "")
+    )
+
+    type_title = f"Item Type Breakdown — {owner}" if owner else "Item Type Breakdown"
+    type_table = Table(title=type_title, caption=filter_label, show_lines=False)
+    type_table.add_column("Item Type", style="cyan")
+    type_table.add_column("Count", justify="right")
+    type_table.add_column("% of Total", justify="right")
+
+    total_items = sum(type_counts.values())
+
+    for item_type, count in type_counts.most_common():
+        pct = f"{round(count / total_items * 100, 1)}%" if total_items else "—"
+        type_table.add_row(item_type, str(count), pct)
+
+    type_table.add_section()
+    type_table.add_row(
+        "[bold]Total[/bold]", f"[bold]{total_items}[/bold]", "[bold]100%[/bold]"
+    )
+
+    console.print(type_table)
+
+    # ── CSV export ────────────────────────────────────────────────────────
+    if export_csv:
+        from pathlib import Path
+        from datetime import datetime
+        import csv
+
+        downloads = Path.home() / "Downloads"
+        timestamp = datetime.now().strftime("%Y%m%d")
+
+        # Export ownership table (when not scoped to a single owner).
+        if not owner:
+            owners_path = downloads / f"{export_csv}_by_owner_{timestamp}.csv"
+            with open(owners_path, mode="w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=["rank", "username", "item_count"]
+                )
+                writer.writeheader()
+                writer.writerows(ownership_rows)
+            console.print(
+                f"[green]✓[/green] Owners exported to [bold]{owners_path}[/bold]"
+            )
+
+        # Always export the type breakdown.
+        types_path = downloads / f"{export_csv}_by_type_{timestamp}.csv"
+        with open(types_path, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["item_type", "count"])
+            writer.writeheader()
+            writer.writerows(
+                {"item_type": t, "count": c} for t, c in type_counts.most_common()
+            )
+        console.print(f"[green]✓[/green] Types exported to [bold]{types_path}[/bold]")
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+
+
+@content_app.command("update-metadata")
+def cmd_update_metadata(
+    item_id: str = typer.Argument(..., help="Item ID to update."),
+    title: Optional[str] = typer.Option(None, "--title", "-t", help="New title."),
+    description: Optional[str] = typer.Option(
+        None, "--description", "-d", help="New description."
+    ),
+    snippet: Optional[str] = typer.Option(
+        None, "--snippet", "-s", help="New short summary (shown in search results)."
+    ),
+    tags: Optional[str] = typer.Option(
+        None,
+        "--tags",
+        help="Replacement tag list, comma-separated. Overwrites existing tags.",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Update an item's title, description, snippet, and/or tags.
+
+    Tags are a full replacement — pass the complete desired list, not just
+    the ones you want to add.
+
+    Examples:
+        esri-cli content update-metadata <id> --title "New Title"
+        esri-cli content update-metadata <id> --tags "gis,flood,2026" --snippet "Updated flood zones"
+    """
+    if not any([title, description, snippet, tags]):
+        console.print(
+            "[yellow]Provide at least one of --title, --description, --snippet, --tags.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    gis = _connect(env)
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+    try:
+        content_ops.update_metadata(
+            gis,
+            item=item_id,
+            title=title,
+            description=description,
+            snippet=snippet,
+            tags=tag_list,
+        )
+        console.print(
+            f"[green]✓[/green] Metadata updated for item [dim]{item_id}[/dim]."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("update-thumbnail")
+def cmd_update_thumbnail(
+    item_id: str = typer.Argument(..., help="Item ID to update."),
+    thumbnail_path: str = typer.Argument(
+        ..., help="Local path to the image file (JPEG or PNG, max 1MB)."
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Set or replace the thumbnail for an item.
+
+    Example:
+        esri-cli content update-thumbnail abc123 C:/images/thumb.png
+    """
+    gis = _connect(env)
+
+    try:
+        content_ops.update_thumbnail(gis, item=item_id, thumbnail_path=thumbnail_path)
+        console.print(
+            f"[green]✓[/green] Thumbnail updated for item [dim]{item_id}[/dim]."
+        )
+    except FileNotFoundError as e:
+        console.print(f"[red bold]File not found:[/red bold] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("delete")
+def cmd_delete_item(
+    item_id: str = typer.Argument(..., help="Item ID to delete."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Check the item is resolvable without deleting."
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Permanently delete an item. Cannot be undone.
+
+    Use --dry-run first to confirm the item exists before committing.
+    Check dependencies with 'esri-cli content dependencies <id>' if you're
+    not sure what else might be using this item.
+
+    Examples:
+        esri-cli content delete abc123 --dry-run
+        esri-cli content delete abc123 --yes
+    """
+    gis = _connect(env)
+
+    if dry_run:
+        try:
+            content_ops.delete_item(gis, item_id, dry_run=True)
+            console.print(
+                f"[green]✓ Dry run passed.[/green] Item '{item_id}' is resolvable and can be deleted."
+            )
+        except ValueError as e:
+            console.print(f"[yellow]Dry run failed:[/yellow] {e}")
+        return
+
+    if not yes:
+        confirmed = typer.confirm(
+            f"Really delete item '{item_id}'? This cannot be undone."
+        )
+        if not confirmed:
+            console.print("[dim]Aborted.[/dim]")
+            raise typer.Exit(0)
+
+    try:
+        content_ops.delete_item(gis, item_id)
+        console.print(f"[green]✓[/green] Deleted item [dim]{item_id}[/dim].")
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("move")
+def cmd_move_item(
+    item_id: str = typer.Argument(..., help="Item ID to move."),
+    to_folder: str = typer.Argument(
+        ..., help="Destination folder name. Use '/' for root."
+    ),
+    owner: Optional[str] = typer.Option(
+        None,
+        "--owner",
+        "-o",
+        help="Item owner username (required when moving another user's content as admin).",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Move an item to a different folder.
+
+    The source folder is resolved automatically — you only need to specify
+    the destination. Pass --owner when moving content that belongs to another
+    user (requires admin privileges).
+
+    Examples:
+        esri-cli content move abc123 "Flood Analysis"
+        esri-cli content move abc123 / --owner jdoe
+    """
+    gis = _connect(env)
+
+    try:
+        content_ops.move_item(gis, item=item_id, to_folder=to_folder, owner=owner)
+        console.print(
+            f"[green]✓[/green] Item [dim]{item_id}[/dim] moved to folder [bold]{to_folder}[/bold]."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("copy")
+def cmd_copy_item(
+    item_id: str = typer.Argument(..., help="Item ID to copy."),
+    title: Optional[str] = typer.Option(
+        None,
+        "--title",
+        "-t",
+        help="Title for the copy. Defaults to 'Copy of <original>'.",
+    ),
+    folder: Optional[str] = typer.Option(
+        None, "--folder", "-f", help="Destination folder for the copy."
+    ),
+    owner: Optional[str] = typer.Option(
+        None,
+        "--owner",
+        "-o",
+        help="Place the copy under a different owner (requires admin).",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Copy an item, optionally with a new title, into a specific folder or under a different owner.
+
+    Examples:
+        esri-cli content copy abc123
+        esri-cli content copy abc123 --title "Flood Zones v2" --folder "Archive"
+        esri-cli content copy abc123 --owner jdoe --folder "Shared Work"
+    """
+    gis = _connect(env)
+
+    try:
+        new_item = content_ops.copy_item(
+            gis, item=item_id, title=title, folder=folder, owner=owner
+        )
+        console.print(
+            f"[green]✓[/green] Copied to [cyan]{new_item.title}[/cyan] (ID: [dim]{new_item.id}[/dim])."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("create-folder")
+def cmd_create_folder(
+    folder_name: str = typer.Argument(..., help="Name of the folder to create."),
+    owner: Optional[str] = typer.Option(
+        None,
+        "--owner",
+        "-o",
+        help="Create the folder under this user (defaults to current user).",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Create a new content folder.
+
+    If the folder already exists, the existing folder info is returned without
+    error — safe to call idempotently.
+
+    Examples:
+        esri-cli content create-folder "Flood Analysis"
+        esri-cli content create-folder "Shared Work" --owner jdoe
+    """
+    gis = _connect(env)
+
+    try:
+        result = content_ops.create_folder(gis, folder_name=folder_name, owner=owner)
+        folder_id = result.get("id", "—")
+        console.print(
+            f"[green]✓[/green] Folder [cyan]{folder_name}[/cyan] ready (ID: [dim]{folder_id}[/dim])."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("delete-folder")
+def cmd_delete_folder(
+    folder_name: str = typer.Argument(..., help="Name of the folder to delete."),
+    owner: Optional[str] = typer.Option(
+        None, "--owner", "-o", help="Folder owner (defaults to current user)."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be deleted without actually deleting."
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Delete a folder and all its contents. Cannot be undone.
+
+    Use --dry-run first — it reports exactly how many items are inside the
+    folder so you know what you're about to lose.
+
+    Examples:
+        esri-cli content delete-folder "Old Projects" --dry-run
+        esri-cli content delete-folder "Old Projects" --yes
+        esri-cli content delete-folder "Old Projects" --owner jdoe --yes
+    """
+    gis = _connect(env)
+
+    if dry_run:
+        try:
+            content_ops.delete_folder(
+                gis, folder_name=folder_name, owner=owner, dry_run=True
+            )
+            console.print(
+                f"[green]✓ Dry run complete.[/green] Check logs for item count inside '{folder_name}'."
+            )
+        except ValueError as e:
+            console.print(f"[yellow]Dry run failed:[/yellow] {e}")
+        return
+
+    if not yes:
+        confirmed = typer.confirm(
+            f"Really delete folder '{folder_name}' and all its contents? This cannot be undone."
+        )
+        if not confirmed:
+            console.print("[dim]Aborted.[/dim]")
+            raise typer.Exit(0)
+
+    try:
+        content_ops.delete_folder(gis, folder_name=folder_name, owner=owner)
+        console.print(
+            f"[green]✓[/green] Deleted folder [bold]{folder_name}[/bold] and its contents."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Sharing and Access
+# ---------------------------------------------------------------------------
+
+
+@content_app.command("set-owner")
+def cmd_update_item_owner(
+    item_id: str = typer.Argument(..., help="Item ID to reassign."),
+    new_owner: str = typer.Argument(..., help="Username of the new owner."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Reassign ownership of an item to a different user.
+
+    Example:
+        esri-cli content set-owner abc123 jdoe
+    """
+    gis = _connect(env)
+
+    if not yes:
+        confirmed = typer.confirm(f"Reassign item '{item_id}' to '{new_owner}'?")
+        if not confirmed:
+            console.print("[dim]Aborted.[/dim]")
+            raise typer.Exit(0)
+
+    try:
+        content_ops.update_item_owner(gis, item=item_id, new_owner=new_owner)
+        console.print(
+            f"[green]✓[/green] Item [dim]{item_id}[/dim] ownership transferred to [cyan]{new_owner}[/cyan]."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("share")
+def cmd_share_item(
+    item_id: str = typer.Argument(..., help="Item ID to share."),
+    access: Optional[str] = typer.Option(
+        None, "--access", "-a", help="Access level: private, org, or public."
+    ),
+    groups: Optional[str] = typer.Option(
+        None,
+        "--groups",
+        "-g",
+        help="Comma-separated list of group IDs or titles to share with.",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Share an item with groups and/or change its access level.
+
+    --access and --groups can be used together or independently.
+
+    Examples:
+        esri-cli content share abc123 --access org
+        esri-cli content share abc123 --groups "GIS Team,abc456def789"
+        esri-cli content share abc123 --access public --groups "abc456def789"
+    """
+    if not any([access, groups]):
+        console.print("[yellow]Provide at least one of --access or --groups.[/yellow]")
+        raise typer.Exit(1)
+
+    gis = _connect(env)
+    group_list = [g.strip() for g in groups.split(",")] if groups else None
+
+    try:
+        content_ops.share_item(gis, item=item_id, groups=group_list, access=access)
+        parts = []
+        if access:
+            parts.append(f"access → [bold]{access}[/bold]")
+        if group_list:
+            parts.append(f"groups → [bold]{', '.join(group_list)}[/bold]")
+        console.print(
+            f"[green]✓[/green] Item [dim]{item_id}[/dim] shared: {', '.join(parts)}."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
+
+
+@content_app.command("unshare")
+def cmd_unshare_item(
+    item_id: str = typer.Argument(..., help="Item ID to unshare."),
+    groups: Optional[str] = typer.Option(
+        None,
+        "--groups",
+        "-g",
+        help="Comma-separated group IDs or titles to remove sharing from.",
+    ),
+    unshare_from_org: bool = typer.Option(
+        False,
+        "--from-org",
+        help="Also remove org/public sharing (sets item back to private).",
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """Remove sharing from an item — specific groups, org/public, or both.
+
+    Examples:
+        esri-cli content unshare abc123 --groups "GIS Team"
+        esri-cli content unshare abc123 --from-org
+        esri-cli content unshare abc123 --groups "abc456" --from-org
+    """
+    if not any([groups, unshare_from_org]):
+        console.print(
+            "[yellow]Provide at least one of --groups or --from-org.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    gis = _connect(env)
+    group_list = [g.strip() for g in groups.split(",")] if groups else None
+
+    try:
+        content_ops.unshare_item(
+            gis, item=item_id, groups=group_list, unshare_from_org=unshare_from_org
+        )
+        parts = []
+        if group_list:
+            parts.append(f"removed from groups: [bold]{', '.join(group_list)}[/bold]")
+        if unshare_from_org:
+            parts.append("removed from org/public")
+        console.print(
+            f"[green]✓[/green] Item [dim]{item_id}[/dim] unshared: {', '.join(parts)}."
+        )
+    except ValueError as e:
+        console.print(f"[red bold]Error:[/red bold] {e}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

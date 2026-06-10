@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from collections import Counter
 
 from arcgis.gis import GIS, Item
 
@@ -49,7 +50,7 @@ def find_item(
     query_string = " AND ".join(query_parts)
 
     try:
-        raw_items = gis.content.search(query=query_string)
+        raw_items = gis.content.search(query=query_string, max_items=-1)
 
         items: list[ArcGISItem] = [ArcGISItem.from_arcgis(i) for i in raw_items]
 
@@ -102,6 +103,89 @@ def item_dependencies(
     except Exception:
         log.exception("Failed to fetch dependencies for item %s", item_id)
         raise
+
+
+def content_ownership_report(
+    gis: GIS,
+    top_n: int = 25,
+    exclude_users: list[str] | None = None,
+    item_types: list[str] | None = None,
+    outside_org: bool = False,
+) -> list[dict]:
+    """Return the top N users ranked by content item count, descending.
+
+    Each entry in the returned list is a dict with:
+        rank        — 1-based position in the sorted results
+        username    — the owner string as it appears on items
+        item_count  — number of items owned (after filters applied)
+
+    top_n:         How many users to return. Pass -1 for all owners found.
+    exclude_users: Usernames to exclude from the results. Case-insensitive.
+                   Anything beginning with 'esri_' is always excluded
+                   regardless of this list.
+    item_types:    If provided, only count items whose type exactly matches
+                   one of the strings in this list (case-insensitive).
+                   e.g. ["Web Map", "Feature Service"]
+                   If None, all item types are counted.
+    outside_org:   Include items outside the org. Almost always False.
+    """
+    log.info(
+        "Fetching org items for ownership report (top_n=%d, item_types=%s)",
+        top_n,
+        item_types,
+    )
+
+    # Build the search query. If item_types are specified, construct an OR
+    # clause so the API does the heavy filtering before we even touch Python.
+    if item_types:
+        type_clauses = " OR ".join(f'type:"{t}"' for t in item_types)
+        query = f"({type_clauses})"
+    else:
+        query = "*"
+
+    try:
+        all_items = gis.content.search(
+            query=query,
+            max_items=-1,
+            outside_org=outside_org,
+        )
+    except Exception:
+        log.exception("Failed to fetch items for ownership report")
+        raise
+
+    if not all_items:
+        log.warning("No items returned — org may be empty or query was restricted.")
+        return []
+
+    # Normalize the caller's exclude list to lowercase for case-insensitive
+    # comparison. esri_ accounts are always excluded — no need to make the
+    # caller remember to add them.
+    excluded = {u.lower() for u in (exclude_users or [])}
+
+    def _should_exclude(owner: str) -> bool:
+        o = (owner or "").lower()
+        return o.startswith("esri_") or o in excluded
+
+    counts: Counter = Counter(
+        owner
+        for item in all_items
+        if not _should_exclude(
+            owner := (getattr(item, "owner", None) or item.get("owner", "unknown"))
+        )
+    )
+
+    log.info(
+        "Report: %d unique owners after exclusions (%d total items scanned)",
+        len(counts),
+        len(all_items),
+    )
+
+    sorted_owners = counts.most_common(top_n if top_n > 0 else None)
+
+    return [
+        {"rank": i + 1, "username": username, "item_count": count}
+        for i, (username, count) in enumerate(sorted_owners)
+    ]
 
 
 # ======== Lifecycle ========
@@ -224,26 +308,42 @@ def move_item(
     destination = to_folder.strip() or "/"
 
     log.info(
-        "Moving item '%s' (ID: %s) to folder '%s'",
+        "Moving item '%s' (ID: %s) to folder '%s' (owner context: %s)",
         raw_item.title,
         raw_item.id,
         destination,
+        owner or "current user",
     )
 
     try:
-        move_kwargs: dict[str, Any] = {"folder": destination}
-        if owner:
-            move_kwargs["owner"] = owner
+        # Scenario A: Moving content owned by another user (Admin context)
+        if owner and owner != gis.users.me.username:
+            reassign_kwargs = {}
+            if destination != "/":
+                reassign_kwargs["target_folder"] = destination
 
-        result = raw_item.move(**move_kwargs)
+            # reassign_to handles cross-user/admin structural moves
+            success = raw_item.reassign_to(owner, **reassign_kwargs)
+            if not success:
+                raise RuntimeError(
+                    f"Reassign/move returned False for item {raw_item.id} to owner {owner}"
+                )
+            log.info(
+                "Successfully reassigned/moved '%s' to folder '%s' under owner %s",
+                raw_item.title,
+                destination,
+                owner,
+            )
 
-        if result and result.get("success"):
+        # Scenario B: Moving content within the authenticated user's own account
+        else:
+            move_result = raw_item.move(folder=destination)
+            if not move_result or not move_result.get("success"):
+                raise RuntimeError(
+                    f"Move returned unexpected result for item {raw_item.id}: {move_result}"
+                )
             log.info(
                 "Successfully moved '%s' to folder '%s'", raw_item.title, destination
-            )
-        else:
-            raise RuntimeError(
-                f"Move returned unexpected result for item {raw_item.id}: {result}"
             )
 
     except Exception:
@@ -251,8 +351,83 @@ def move_item(
         raise
 
 
-# copy item
-# delete item
+def copy_item(
+    gis: GIS,
+    item: str | Item,
+    title: str | None = None,
+    folder: str | None = None,
+    owner: str | None = None,
+) -> ArcGISItem:
+    """Copy an item, optionally specifying a new title, folder, or owner.
+
+    title:  Title for the copy. Defaults to "Copy of <original title>".
+    folder: Destination folder name for the copy. Defaults to the root folder.
+    owner:  Username of the target folder owner. Required if moving into a folder
+            owned by a different user.
+
+    Returns the ArcGISItem dataclass for the newly created copy.
+    """
+    raw_item = _resolve_item(gis, item)
+
+    copy_title = title or f"Copy of {raw_item.title}"
+
+    log.info(
+        "Copying item '%s' (ID: %s) → title: '%s', folder: '%s', owner: '%s'",
+        raw_item.title,
+        raw_item.id,
+        copy_title,
+        folder or "root",
+        owner or "current user",
+    )
+
+    try:
+        # Step 1: Copy the item into the active user's root context
+        new_item: Item | None = raw_item.copy(title=copy_title)
+
+        if not new_item:
+            raise RuntimeError(f"Copy returned None for item {raw_item.id}")
+
+        destination = (folder or "").strip() or "/"
+
+        # Step 2: Handle Relocation / Ownership Reassignment
+        if owner and owner != gis.users.me.username:
+            log.info(
+                "Reassigning ownership of item %s to %s (folder: '%s')",
+                new_item.id,
+                owner,
+                destination,
+            )
+
+            # Form signature cleanly: reassign_to(target_username, target_folder=None)
+            reassign_kwargs = {}
+            if destination != "/":
+                reassign_kwargs["target_folder"] = destination
+
+            success = new_item.reassign_to(owner, **reassign_kwargs)
+            if not success:
+                raise RuntimeError(
+                    f"Failed to reassign copied item {new_item.id} to user '{owner}'"
+                )
+
+        elif destination != "/":
+            log.info("Moving copied item %s to folder '%s'", new_item.id, destination)
+            # Safe local structural shift
+            move_result = new_item.move(folder=destination)
+            if not move_result or not move_result.get("success"):
+                raise RuntimeError(
+                    f"Failed to move copied item {new_item.id} to folder '{destination}': {move_result}"
+                )
+
+        log.info(
+            "Successfully copied '%s' → new item ID: %s", raw_item.title, new_item.id
+        )
+        return ArcGISItem.from_arcgis(new_item)
+
+    except Exception:
+        log.exception("Failed to copy item '%s'", raw_item.title)
+        raise
+
+
 def create_folder(
     gis: GIS,
     folder_name: str,
@@ -276,27 +451,90 @@ def create_folder(
     log.info("Creating folder '%s' for user %s", folder_name, target_owner)
 
     try:
-        result: dict | None = gis.content.create_folder(
+        # returns an arcgis.content.Folder
+        folder_obj = gis.content.folders.create(
             folder=folder_name,
             owner=target_owner,
         )
 
-        if not result:
+        if not folder_obj:
             raise RuntimeError(
-                f"create_folder returned None for '{folder_name}' (owner: {target_owner}). "
-                "Folder may already exist."
+                f"create_folder returned None for '{folder_name}' (owner: {target_owner})."
             )
+
+        # Access props directly; avoid AttributeErrors
+        props = folder_obj._properties
+        folder_id = props.get("id")
 
         log.info(
             "Successfully created folder '%s' (ID: %s) for %s",
             folder_name,
-            result.get("id"),
+            folder_id,
             target_owner,
         )
-        return result
+
+        return dict(props)
+
+    except Exception as e:
+        # handles existing folder cases without breaking
+        if "not available" in str(e) or "already exists" in str(e).lower():
+            log.warning(
+                "Folder '%s' already exists for user %s. Retrieving existing folder.",
+                folder_name,
+                target_owner,
+            )
+            user = gis.users.get(target_owner)
+            for f in user.folders:
+                if (
+                    f._name or f._properties.get("name", "")
+                ).lower() == folder_name.lower():
+                    return dict(f._properties)
+
+        log.exception("Failed to create folder '%s' for %s", folder_name, target_owner)
+        raise
+
+
+def delete_item(
+    gis: GIS,
+    item: str | Item,
+    dry_run: bool = False,
+) -> None:
+    """Permanently delete an item by its instance or unique Item ID string.
+
+    This cannot be undone. Use dry_run=True to verify the item exists and
+    is resolvable before committing.
+
+    item:    The Item object or the 32-character alphanumeric item ID string.
+    dry_run: If True, logs intended action without executing the deletion.
+    """
+    raw_item = _resolve_item(gis, item)
+
+    if dry_run:
+        log.info(
+            "Dry run: item '%s' (ID: %s, owner: %s) would be deleted.",
+            raw_item.title,
+            raw_item.id,
+            raw_item.owner,
+        )
+        return
+
+    log.info(
+        "Deleting item '%s' (ID: %s, owner: %s)",
+        raw_item.title,
+        raw_item.id,
+        raw_item.owner,
+    )
+
+    try:
+        success = raw_item.delete()
+
+        if success:
+            log.info("Successfully deleted item '%s'", raw_item.title)
+        else:
+            raise RuntimeError(f"Delete returned False for item {raw_item.id}")
 
     except Exception:
-        log.exception("Failed to create folder '%s' for %s", folder_name, target_owner)
+        log.exception("Failed to delete item '%s'", raw_item.title)
         raise
 
 
