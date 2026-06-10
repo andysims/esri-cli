@@ -135,8 +135,7 @@ def content_ownership_report(
         item_types,
     )
 
-    # Build the search query. If item_types are specified, construct an OR
-    # clause so the API does the heavy filtering before we even touch Python.
+    # if item_types are specified, construct an OR
     if item_types:
         type_clauses = " OR ".join(f'type:"{t}"' for t in item_types)
         query = f"({type_clauses})"
@@ -157,9 +156,7 @@ def content_ownership_report(
         log.warning("No items returned — org may be empty or query was restricted.")
         return []
 
-    # Normalize the caller's exclude list to lowercase for case-insensitive
-    # comparison. esri_ accounts are always excluded — no need to make the
-    # caller remember to add them.
+    # esri_ accounts are always excluded
     excluded = {u.lower() for u in (exclude_users or [])}
 
     def _should_exclude(owner: str) -> bool:
