@@ -18,7 +18,7 @@ load_config() + gis_conn() from auth.py.
 
 import logging
 import sys
-from typing import Optional
+from typing import Optional, List
 from collections import Counter
 
 import typer
@@ -72,11 +72,11 @@ app.add_typer(group_app, name="group")
 app.add_typer(audit_app, name="audit")
 
 content_app = typer.Typer(help="Content management commands.", no_args_is_help=True)
-app.add_typer(content_app, name="content")  
+app.add_typer(content_app, name="content")
 
 
 # ---------------------------------------------------------------------------
-# Shared auth helper 
+# Shared auth helper
 # ---------------------------------------------------------------------------
 def _connect(env: str) -> GIS:
     """Resolve credentials for `env` and return an authenticated GIS object."""
@@ -1137,6 +1137,60 @@ def cmd_inactive_users(
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
+
+
+@audit_app.command("list-users")
+def cmd_list_users(
+    exclude_license: Optional[List[str]] = typer.Option(
+        None, "--exclude-license", "-xl", help="License type(s) to filter out."
+    ),
+    exclude_provider: Optional[List[str]] = typer.Option(
+        None, "--exclude-provider", "-xp", help="Provider(s) to filter out."
+    ),
+    exclude_role: Optional[List[str]] = typer.Option(
+        None, "--exclude-role", "-xr", help="Role(s) to filter out."
+    ),
+    outside_org: bool = typer.Option(
+        False, "--outside-org", help="Include users from outside the org."
+    ),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+    export_csv: Optional[str] = typer.Option(
+        None, "--export-csv", help="Path to export matching users as CSV."
+    ),
+):
+    """Fetches organization users with optional exclusion filters and displays counts."""
+    gis = _connect(env)
+
+    try:
+        with console.status("[bold green]Fetching and filtering users..."):
+            users = audit_ops.get_users(
+                gis=gis,
+                exclude_license_types=exclude_license,
+                exclude_providers=exclude_provider,
+                exclude_roles=exclude_role,
+                outside_org=outside_org,
+            )
+
+        total_count = len(users)
+
+        console.print(
+            f"\n[green]✓[/green] Fetch complete for environment: [bold]{env}[/bold]"
+        )
+        console.print(
+            f" • Matching users found: [bold yellow]{total_count}[/bold yellow]"
+        )
+        console.print(f"    • Excluded Provider(s): {exclude_provider}")
+        console.print(f"    • Excluded License(s): {exclude_license}")
+        console.print(f"    • Excluded Role(s): {exclude_role}\n")
+
+        if export_csv:
+            utils_ops.export_to_csv(users, export_csv)
+            console.print(
+                f"[green]✓[/green] Complete item ledger successfully exported to [bold]{export_csv}[/bold]\n"
+            )
+    except Exception as e:
+        console.print(f"[red]Error fetching users:[/red] {e}")
+        raise typer.Exit(code=1)
 
 
 @audit_app.command("public-items")
