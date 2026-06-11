@@ -72,11 +72,11 @@ app.add_typer(group_app, name="group")
 app.add_typer(audit_app, name="audit")
 
 content_app = typer.Typer(help="Content management commands.", no_args_is_help=True)
-app.add_typer(content_app, name="content")  # ← uncomment / add
+app.add_typer(content_app, name="content")  
 
 
 # ---------------------------------------------------------------------------
-# Shared auth helper — called once at the top of every command.
+# Shared auth helper 
 # ---------------------------------------------------------------------------
 def _connect(env: str) -> GIS:
     """Resolve credentials for `env` and return an authenticated GIS object."""
