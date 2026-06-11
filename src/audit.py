@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from arcgis.gis import GIS, Item
 from collections import Counter  # probably throw this into reporting
+from typing import Optional, List
 
 from .users import find_user
 from .models import ArcGISUser, ArcGISItem, ArcGISGroup, AuditReport
@@ -56,6 +57,47 @@ def inactive_users(gis: GIS, days: int = 90) -> list[ArcGISUser]:
     return inactive_list
 
 
+def get_users(
+    gis: GIS,
+    exclude_license_types: Optional[List[str]] = None,
+    exclude_providers: Optional[List[str]] = None,
+    exclude_roles: Optional[List[str]] = None,
+    outside_org: bool = False,
+) -> List["ArcGISUser"]:
+    """
+    Returns a list of ArcGISUser objects.
+
+    By default returns ALL users.
+    Pass lists to exclude users matching any of the provided values.
+    """
+    try:
+        max_users = total_users(gis)
+    except NameError:
+        max_users = 10000  # for safety
+
+    all_users = gis.users.search(max_users=max_users, outside_org=outside_org)
+
+    exclude_license_types = set(exclude_license_types or [])
+    exclude_providers = set(exclude_providers or [])
+    exclude_roles = set(exclude_roles or [])
+
+    filtered = []
+    for u in all_users:
+        if (
+            exclude_license_types
+            and u.get("userLicenseTypeId") in exclude_license_types
+        ):
+            continue
+        if exclude_providers and u.get("provider") in exclude_providers:
+            continue
+        if exclude_roles and u.get("role") in exclude_roles:
+            continue
+
+        filtered.append(ArcGISUser.from_arcgis(u))
+
+    return filtered
+
+
 def sharing_audit(gis: GIS, username: str | None = "") -> dict[str, int] | None:
     try:
         username = (username or "").strip().lower()
@@ -97,8 +139,6 @@ def sharing_audit(gis: GIS, username: str | None = "") -> dict[str, int] | None:
     except Exception:
         log.exception("Issue with fetching content")
         return None
-
-
 
 
 # ======== Content Exposure ========
