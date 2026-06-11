@@ -1139,16 +1139,42 @@ def cmd_inactive_users(
         raise typer.Exit(1)
 
 
+def _parse_cli_list(values: Optional[List[str]]) -> Optional[List[str]]:
+    """Helper to flatten multi-flag inputs and split on commas.
+
+    Turns ['arcgis, enterprise', 'saml'] into ['arcgis', 'enterprise', 'saml']
+    """
+    if not values:
+        return None
+
+    parsed_items = []
+    for item in values:
+        # Split on commas and strip leading/trailing whitespace
+        split_items = [val.strip() for val in item.split(",") if val.strip()]
+        parsed_items.extend(split_items)
+
+    return parsed_items if parsed_items else None
+
+
 @audit_app.command("list-users")
 def cmd_list_users(
     exclude_license: Optional[List[str]] = typer.Option(
-        None, "--exclude-license", "-xl", help="License type(s) to filter out."
+        None,
+        "--exclude-license",
+        "-xl",
+        help="License type(s) to filter out. Comma-separated or multiple flags.",
     ),
     exclude_provider: Optional[List[str]] = typer.Option(
-        None, "--exclude-provider", "-xp", help="Provider(s) to filter out."
+        None,
+        "--exclude-provider",
+        "-xp",
+        help="Provider(s) to filter out. Comma-separated or multiple flags.",
     ),
     exclude_role: Optional[List[str]] = typer.Option(
-        None, "--exclude-role", "-xr", help="Role(s) to filter out."
+        None,
+        "--exclude-role",
+        "-xr",
+        help="Role(s) to filter out. Comma-separated or multiple flags.",
     ),
     outside_org: bool = typer.Option(
         False, "--outside-org", help="Include users from outside the org."
@@ -1161,13 +1187,18 @@ def cmd_list_users(
     """Fetches organization users with optional exclusion filters and displays counts."""
     gis = _connect(env)
 
+    # Process and clean up the comma-separated or multi-flag arguments
+    parsed_licenses = _parse_cli_list(exclude_license)
+    parsed_providers = _parse_cli_list(exclude_provider)
+    parsed_roles = _parse_cli_list(exclude_role)
+
     try:
         with console.status("[bold green]Fetching and filtering users..."):
             users = audit_ops.get_users(
                 gis=gis,
-                exclude_license_types=exclude_license,
-                exclude_providers=exclude_provider,
-                exclude_roles=exclude_role,
+                exclude_license_types=parsed_licenses,
+                exclude_providers=parsed_providers,
+                exclude_roles=parsed_roles,
                 outside_org=outside_org,
             )
 
@@ -1177,17 +1208,18 @@ def cmd_list_users(
             f"\n[green]✓[/green] Fetch complete for environment: [bold]{env}[/bold]"
         )
         console.print(
-            f" • Matching users found: [bold yellow]{total_count}[/bold yellow]"
+            f"  • Matching users found: [bold yellow]{total_count}[/bold yellow]"
         )
-        console.print(f"    • Excluded Provider(s): {exclude_provider}")
-        console.print(f"    • Excluded License(s): {exclude_license}")
-        console.print(f"    • Excluded Role(s): {exclude_role}\n")
+        console.print(f"    • Excluded Provider(s): {parsed_providers}")
+        console.print(f"    • Excluded License(s): {parsed_licenses}")
+        console.print(f"    • Excluded Role(s): {parsed_roles}\n")
 
         if export_csv:
             utils_ops.export_to_csv(users, export_csv)
             console.print(
                 f"[green]✓[/green] Complete item ledger successfully exported to [bold]{export_csv}[/bold]\n"
             )
+
     except Exception as e:
         console.print(f"[red]Error fetching users:[/red] {e}")
         raise typer.Exit(code=1)
