@@ -2,7 +2,7 @@
 
 A Python command-line interface designed to centralize and automate ArcGIS administration, optimization, and auditing tasks across environments (ArcGIS Enterprise/Portal and Online).
 
-**Test everything** in a development environment <u>before running it against production</u>.
+**Test everything** in a development environment <ins>before running it against production</ins>.
 
 ## Current Status
 

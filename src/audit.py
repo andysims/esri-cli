@@ -99,6 +99,8 @@ def sharing_audit(gis: GIS, username: str | None = "") -> dict[str, int] | None:
         return None
 
 
+
+
 # ======== Content Exposure ========
 def public_items(gis: GIS, item_types: list[str] | None = None) -> list[ArcGISItem]:
     """Return all public items belonging strictly to this organization,
