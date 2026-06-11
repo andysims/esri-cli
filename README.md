@@ -2,6 +2,8 @@
 
 A Python command-line interface designed to centralize and automate ArcGIS administration, optimization, and auditing tasks across environments (ArcGIS Enterprise/Portal and Online).
 
+**Test everything** in a development environment <u>before running it against production</u>.
+
 ## Current Status
 
 **Functional Core.** The application architecture enforces a strict separation of concerns, routing user input through `main.py` via `typer` and executing backend logic via decoupled modules in `src/`.
