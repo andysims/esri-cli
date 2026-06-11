@@ -15,6 +15,7 @@ A Python command-line interface designed to centralize and automate ArcGIS admin
 * **Centralized Connection Factory (`src/auth.py`):** Handles profile-based authentication (`.env`) for both ArcGIS Online (AGOL) and ArcGIS Enterprise Portals.
 * **User Management (`src/users.py`):** Look up user accounts, compile active detail profiles, and audit profile configurations.
 * **Group Administration (`src/groups.py`):** Query group structures, manage user memberships, and audit group properties.
+* **Content (item) Management (`src/content.py`):** Look up or find content, update content metadata, create/delete folders, obtain contain summaries, and manage items.
 * **Platform Auditing (`src/audit.py`):** Operational safety sweeps including (but not limited to):
     * `whats-new`: Track newly added users, groups, and content items across a given timeframe.
     * `inactive`: Identify stale accounts that haven't logged in within a target number of days.
@@ -42,6 +43,7 @@ A Python command-line interface designed to centralize and automate ArcGIS admin
     # Domain management help menus
     esri-cli user --help
     esri-cli group --help
+    esri-cli content --help
     esri-cli audit --help
 
     # Example operational commands
