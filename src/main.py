@@ -20,6 +20,7 @@ import logging
 import sys
 from typing import Optional, List
 from collections import Counter
+import urllib3
 
 import typer
 from arcgis.gis import GIS
@@ -37,6 +38,8 @@ from . import content as content_ops
 # ---------------------------------------------------------------------------
 # Logging — INFO goes to file, WARNING+ to stderr so Rich owns stdout cleanly.
 # ---------------------------------------------------------------------------
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
