@@ -22,7 +22,6 @@ def user_details(gis: GIS, user: str | User) -> ArcGISUser:
     return ArcGISUser.from_arcgis(raw_user)
 
 
-# TODO: add user_groups -> provide ability to search on username and return all groups
 def user_groups(gis: GIS, user: Union[str, User]) -> List[ArcGISGroupSummary]:
     """Fetches all groups a user belongs to, mapped to ArcGISGroupSummary and sorted by title."""
     if isinstance(user, str):
@@ -37,11 +36,10 @@ def user_groups(gis: GIS, user: Union[str, User]) -> List[ArcGISGroupSummary]:
 
     for grp in raw_groups:
         try:
-            mapped_groups.append(ArcGISGroupSummary.from_arcgis(grp))
+            mapped_groups.append(ArcGISGroupSummary.from_arcgis(grp, gis=gis))
         except Exception:
             continue
 
-    # Clean case-insensitive sorting
     mapped_groups.sort(key=lambda g: g.title.lower() if g.title else "")
     return mapped_groups
 

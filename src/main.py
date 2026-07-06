@@ -228,7 +228,11 @@ def cmd_user_groups(
     username: str = typer.Argument(..., help="Username to look up groups for."),
     env: str = typer.Option("agol", "--env", help="Environment key in .env."),
 ):
-    """List all groups a user belongs to, sorted alphabetically by group title."""
+    """List all groups a user belongs to, sorted alphabetically by group title.
+
+    Example:
+        esri-cli user groups bsmith
+    """
     gis = _connect(env)
 
     with console.status(
@@ -250,7 +254,6 @@ def cmd_user_groups(
     table.add_column("Group Title", style="cyan")
     table.add_column("Created", justify="center")
     table.add_column("Owner")
-    table.add_column("Access", justify="center")
     table.add_column("Members", justify="right")
 
     for g in groups:
@@ -262,7 +265,6 @@ def cmd_user_groups(
             g.title,
             g.created or "—",
             owner_display,
-            g.access.capitalize(),
             str(g.member_count),
         )
 

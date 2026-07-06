@@ -225,12 +225,13 @@ class ArcGISGroupSummary:
     title: str
     owner: str
     created: str | None
-    access: str
     members: Dict[str, Any] = field(default_factory=dict)
     member_count: int = 0
 
     @classmethod
-    def from_arcgis(cls, group_obj: Any) -> "ArcGISGroupSummary":
+    def from_arcgis(
+        cls, group_obj: Any, gis: "GIS | None" = None
+    ) -> "ArcGISGroupSummary":
         """Create from arcgis.gis.Group object or dict."""
         if group_obj is None:
             raise ValueError("Received None instead of a Group object")
@@ -249,11 +250,33 @@ class ArcGISGroupSummary:
 
         group_id = props.get("id", "")
         title = props.get("title", "")
+
+        if not title:
+            title = getattr(group_obj, "title", "") or getattr(group_obj, "name", "")
+
+        if (not group_id or not title) and gis is not None:
+            try:
+                if hasattr(group_obj, "id"):
+                    group_id = group_obj.id
+
+                if group_id:
+                    full_group = gis.groups.get(group_id)
+                    props = (
+                        full_group._properties
+                        if hasattr(full_group, "_properties")
+                        else full_group.get_properties()
+                    )
+                    title = (
+                        props.get("title", "")
+                        or getattr(full_group, "title", "")
+                        or getattr(full_group, "name", "")
+                    )
+            except Exception:
+                pass
+
         owner = props.get("owner", "")
-        access = props.get("access", "private")
         raw_created = props.get("created")
 
-        # Pull memberships safely
         try:
             raw_members = (
                 group_obj.get_members() if hasattr(group_obj, "get_members") else {}
@@ -275,7 +298,6 @@ class ArcGISGroupSummary:
             title=title,
             owner=group_owner,
             created=esri_timestamp_to_str(raw_created),
-            access=access,
             members=raw_members,
             member_count=member_count,
         )
