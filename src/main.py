@@ -348,6 +348,14 @@ def cmd_update_role(
 
     Example:
         esri-cli user set-role jdoe org_publisher
+
+    Reference: Standard ArcGIS System Role IDs
+        Viewer: iAAAAAAAAAAAAAAA
+        Data Editor: iBBBBBBBBBBBBBBB
+        Facilitator: iCCCCCCCCCCCCCCC
+        User: org_user
+        Publisher: org_publisher
+        Administrator: org_admin
     """
     gis = _connect(env)
     ok = user_ops.update_user_role(gis, username, role)
