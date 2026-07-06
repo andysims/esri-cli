@@ -218,6 +218,69 @@ class ArcGISGroupItem:
         )
 
 
+# Newly created
+@dataclass
+class ArcGISGroupSummary:
+    id: str
+    title: str
+    owner: str
+    created: str | None
+    access: str
+    members: Dict[str, Any] = field(default_factory=dict)
+    member_count: int = 0
+
+    @classmethod
+    def from_arcgis(cls, group_obj: Any) -> "ArcGISGroupSummary":
+        """Create from arcgis.gis.Group object or dict."""
+        if group_obj is None:
+            raise ValueError("Received None instead of a Group object")
+
+        is_dict = isinstance(group_obj, dict)
+
+        if not is_dict:
+            props = getattr(group_obj, "_properties", {})
+            if not props or not props.get("id"):
+                try:
+                    props = group_obj.get_properties() or {}
+                except Exception:
+                    props = getattr(group_obj, "properties", {})
+        else:
+            props = group_obj
+
+        group_id = props.get("id", "")
+        title = props.get("title", "")
+        owner = props.get("owner", "")
+        access = props.get("access", "private")
+        raw_created = props.get("created")
+
+        # Pull memberships safely
+        try:
+            raw_members = (
+                group_obj.get_members() if hasattr(group_obj, "get_members") else {}
+            )
+        except Exception:
+            raw_members = {}
+
+        all_users: List[str] = []
+        group_owner = raw_members.get("owner") or owner
+        if group_owner:
+            all_users.append(group_owner)
+
+        all_users.extend(raw_members.get("admins", []))
+        all_users.extend(raw_members.get("users", []))
+        member_count = len(set(all_users))
+
+        return cls(
+            id=group_id,
+            title=title,
+            owner=group_owner,
+            created=esri_timestamp_to_str(raw_created),
+            access=access,
+            members=raw_members,
+            member_count=member_count,
+        )
+
+
 @dataclass
 class ArcGISItem:
     id: str

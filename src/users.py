@@ -1,9 +1,10 @@
 import logging
 from arcgis.gis import GIS, User
+from typing import List, Union
 
 from .utils import esri_timestamp_to_str
 from .groups import transfer_user_groups
-from .models import ArcGISUser, FolderInfo
+from .models import ArcGISUser, FolderInfo, ArcGISGroupSummary, ArcGISGroup
 from .common import get_user
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,31 @@ def user_details(gis: GIS, user: str | User) -> ArcGISUser:
     return ArcGISUser.from_arcgis(raw_user)
 
 
+# TODO: add user_groups -> provide ability to search on username and return all groups
+def user_groups(gis: GIS, user: Union[str, User]) -> List[ArcGISGroupSummary]:
+    """Fetches all groups a user belongs to, mapped to ArcGISGroupSummary and sorted by title."""
+    if isinstance(user, str):
+        user_obj = gis.users.get(user)
+        if not user_obj:
+            raise ValueError(f"User '{user}' not found in the target GIS portal.")
+    else:
+        user_obj = user
+
+    raw_groups = user_obj.groups
+    mapped_groups = []
+
+    for grp in raw_groups:
+        try:
+            mapped_groups.append(ArcGISGroupSummary.from_arcgis(grp))
+        except Exception:
+            continue
+
+    # Clean case-insensitive sorting
+    mapped_groups.sort(key=lambda g: g.title.lower() if g.title else "")
+    return mapped_groups
+
+
+"""
 # move this to CLI; has interactivity
 def select_user(user_list: list[User]) -> User:
     print("Multiple users found:")
@@ -37,6 +63,7 @@ def select_user(user_list: list[User]) -> User:
                 print("Invalid selection. Try again.")
         except ValueError:
             print("Please enter a valid integer")
+"""
 
 
 def find_user(

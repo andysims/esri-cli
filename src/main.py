@@ -223,6 +223,52 @@ def cmd_user_folders(
     console.print(table)
 
 
+@user_app.command("groups")
+def cmd_user_groups(
+    username: str = typer.Argument(..., help="Username to look up groups for."),
+    env: str = typer.Option("agol", "--env", help="Environment key in .env."),
+):
+    """List all groups a user belongs to, sorted alphabetically by group title."""
+    gis = _connect(env)
+
+    with console.status(
+        f"[bold green]Fetching groups for {username}...", spinner="dots"
+    ):
+        try:
+            groups = user_ops.user_groups(gis, username)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
+    if not groups:
+        console.print(f"[yellow]{username} is not a member of any groups.[/yellow]")
+        return
+
+    table = Table(title=f"Groups for {username} ({len(groups)} total)", show_lines=True)
+
+    table.add_column("Group ID", style="dim")
+    table.add_column("Group Title", style="cyan")
+    table.add_column("Owner")
+    table.add_column("Access", justify="center")
+    table.add_column("Members", justify="right")
+    table.add_column("Created", justify="center")
+
+    for g in groups:
+        is_owner = username.lower() == g.owner.lower()
+        owner_display = f"[bold]{g.owner}[/bold]" if is_owner else g.owner
+
+        table.add_row(
+            g.id,
+            g.title,
+            owner_display,
+            g.access.capitalize(),
+            str(g.member_count),
+            g.created or "—",
+        )
+
+    console.print(table)
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
