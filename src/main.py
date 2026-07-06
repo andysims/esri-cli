@@ -248,10 +248,10 @@ def cmd_user_groups(
 
     table.add_column("Group ID", style="dim")
     table.add_column("Group Title", style="cyan")
+    table.add_column("Created", justify="center")
     table.add_column("Owner")
     table.add_column("Access", justify="center")
     table.add_column("Members", justify="right")
-    table.add_column("Created", justify="center")
 
     for g in groups:
         is_owner = username.lower() == g.owner.lower()
@@ -260,10 +260,10 @@ def cmd_user_groups(
         table.add_row(
             g.id,
             g.title,
+            g.created or "—",
             owner_display,
             g.access.capitalize(),
             str(g.member_count),
-            g.created or "—",
         )
 
     console.print(table)
