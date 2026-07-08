@@ -1165,6 +1165,7 @@ def cmd_inactive_users(
     """Audits environment for users that have not logged in X amount of days."""
     gis = _connect(env)
     try:
+        total_org_users = audit_ops.total_users(gis)
         users = audit_ops.inactive_users(gis, days)
         total_count = len(users)
         never_logged_in_count = sum(
@@ -1174,7 +1175,7 @@ def cmd_inactive_users(
         inactive_count = total_count - never_logged_in_count
 
         never_logged_in_pct = round((never_logged_in_count / total_count) * 100, 1)
-        inactive_days_pct = round((inactive_count / total_count) * 100, 1)
+        inactive_days_pct = round((inactive_count / total_org_users) * 100, 1)
 
         console.print(
             f"\n[green]✓[/green] Audit complete for environment: [bold]{env}[/bold]"
