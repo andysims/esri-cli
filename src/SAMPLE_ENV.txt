@@ -1,0 +1,8 @@
+# Below is a how to configure .env file for AGOL/Portal
+agol_url=https://[ORG_URL].arcgis.com
+agol_username=YOUR_USERNAME
+agol_password=YOUR_PASSWORD
+
+portal_url=https://[URL]/[PORTAL]
+portal_username=YOUR_USERNAME
+portal_password=YOUR_PASSWORD
